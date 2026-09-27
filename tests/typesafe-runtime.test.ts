@@ -17,6 +17,7 @@ vi.mock("https", () => ({ request: vi.fn() }));
 
 const serve = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>();
 let lastResponse: (PassThrough & { complete: boolean }) | undefined;
+let syntheticChunk: unknown;
 
 // Nodeのrequest/responseだけをfake化し、SDK生成・adapter・stream処理は実装を通す。
 function installHttpsFake(): void {
@@ -46,7 +47,9 @@ function installHttpsFake(): void {
           if (destroyed) return;
           const headers: Record<string, string> = {};
           reply.headers.forEach((value, name) => { headers[name] = value; });
-          const response = Object.assign(new PassThrough(), {
+          const response = Object.assign(new PassThrough({
+            objectMode: syntheticChunk !== undefined,
+          }), {
             statusCode: reply.status,
             headers,
             complete: false,
@@ -59,7 +62,7 @@ function installHttpsFake(): void {
             while (!response.destroyed) {
               const chunk = await reader.read();
               if (chunk.done) break;
-              response.write(chunk.value);
+              response.write(syntheticChunk === undefined ? chunk.value : syntheticChunk);
             }
           }
           if (!response.destroyed) {
@@ -116,6 +119,7 @@ describe("TypeSafe production runtime boundary", () => {
     serve.mockReset().mockResolvedValue(jsonResponse(providerResponse));
     vi.mocked(httpsRequest).mockReset();
     lastResponse = undefined;
+    syntheticChunk = undefined;
     installHttpsFake();
   });
 
@@ -144,6 +148,43 @@ describe("TypeSafe production runtime boundary", () => {
       expect.objectContaining({ method: "POST" }),
     );
   });
+
+  it("decodes multiple Buffer chunks in order through the Desktop transport", async () => {
+    const payload = JSON.stringify(providerResponse);
+    const bytes = new TextEncoder().encode(payload);
+    serve.mockResolvedValue(new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes.slice(0, 11));
+        controller.enqueue(bytes.slice(11, 25));
+        controller.enqueue(bytes.slice(25));
+        controller.close();
+      },
+    })));
+
+    await expect(new TypeSafeAdapter("unit-test-only").classify(note, candidates))
+      .resolves.toEqual({
+        candidates: [
+          { path: "Projects", probability: 0.8 },
+          { path: "Archive", probability: 0.2 },
+        ],
+      });
+    expect(httpsRequest).toHaveBeenCalledOnce();
+  });
+
+  it.each([new Uint8Array([123]), "private response", { body: "private response" }])(
+    "rejects a synthetic non-Buffer response chunk safely",
+    async (chunk) => {
+      vi.useFakeTimers();
+      syntheticChunk = chunk;
+      const result = new TypeSafeAdapter("unit-test-only").classify(note, candidates);
+
+      await expect(result).rejects.toBeInstanceOf(NetworkError);
+      await expect(result).rejects.not.toThrow("private response");
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(httpsRequest).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
 
   it("pins the endpoint and keeps logging off despite ambient SDK configuration", async () => {
     vi.stubEnv("TYPESAFE_BASE_URL", "https://example.invalid");

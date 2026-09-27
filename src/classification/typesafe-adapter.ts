@@ -181,9 +181,14 @@ async function readDesktopResponse(
 
   const chunks: Buffer[] = [];
   // async iteratorがstream error/途中切断も捕捉し、SDKのtimeout/abortを本文完了まで有効にする。
-  for await (const chunk of response) {
+  for await (const rawChunk of response) {
     throwIfCancelled(signal);
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const chunk: unknown = rawChunk;
+    // encoding未設定のIncomingMessageはBufferを返す。想定外の値は変換せず拒否する。
+    if (!Buffer.isBuffer(chunk)) {
+      throw new Error("Invalid TypeSafe transport response.");
+    }
+    chunks.push(chunk);
   }
   throwIfCancelled(signal);
   if (!response.complete) {
