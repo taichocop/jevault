@@ -90,6 +90,13 @@ jobs:
             echo 'Release already exists; refusing to modify it.' >&2
             exit 1
           fi
+          # 実行開始後のタグ付け替えで別コミットの成果物を公開しない。
+          remote_refs="$(git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")"
+          remote_commit="$(printf '%s\n' "$remote_refs" | awk -v tag="$RELEASE_TAG" '$2 == "refs/tags/" tag "^{}" { print $1 }')"
+          if [ -z "$remote_commit" ]; then
+            remote_commit="$(printf '%s\n' "$remote_refs" | awk -v tag="$RELEASE_TAG" '$2 == "refs/tags/" tag { print $1 }')"
+          fi
+          test "$remote_commit" = "$GITHUB_SHA"
           gh release create "$RELEASE_TAG" \
             release-assets/main.js \
             release-assets/manifest.json \
