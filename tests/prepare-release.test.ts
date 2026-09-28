@@ -24,7 +24,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-it("stages only the three exact assets without changing source metadata", async () => {
+it("allows an unchanged minAppVersion without a current versions entry and stages only exact assets", async () => {
   const root = await fixture();
   const before = await readFile(path.join(root, "manifest.json"));
   await writeFile(path.join(root, ".env.1password"), "fixture, not a secret");
@@ -48,10 +48,46 @@ it("rejects missing or empty styles.css and other missing assets", async () => {
   await expect(prepareRelease(root)).rejects.toThrow();
   await writeFile(path.join(root, "styles.css"), "");
   await expect(prepareRelease(root)).rejects.toThrow("nonempty");
+  const otherRoot = await fixture();
+  await rm(path.join(otherRoot, "main.js"));
+  await expect(prepareRelease(otherRoot)).rejects.toThrow();
 });
 
-it("rejects a conflicting versions.json entry", async () => {
+it("requires a current mapping when minAppVersion changes", async () => {
   const root = await fixture();
-  await writeFile(path.join(root, "versions.json"), JSON.stringify({ "0.2.0": "1.13.0" }));
+  await writeFile(path.join(root, "manifest.json"), JSON.stringify({ version: "0.2.0", minAppVersion: "1.13.0" }));
+  await expect(prepareRelease(root)).rejects.toThrow("minAppVersion changed; versions.json requires an entry");
+});
+
+it("accepts a matching current compatibility mapping", async () => {
+  const root = await fixture();
+  await writeFile(path.join(root, "manifest.json"), JSON.stringify({ version: "0.2.0", minAppVersion: "1.13.0" }));
+  await writeFile(path.join(root, "versions.json"), JSON.stringify({ "0.1.0": "1.11.4", "0.2.0": "1.13.0" }));
+  await expect(prepareRelease(root, "0.2.0")).resolves.toMatchObject({ version: "0.2.0" });
+});
+
+it("rejects a conflicting current versions.json entry", async () => {
+  const root = await fixture();
+  await writeFile(path.join(root, "manifest.json"), JSON.stringify({ version: "0.2.0", minAppVersion: "1.13.0" }));
+  await writeFile(path.join(root, "versions.json"), JSON.stringify({ "0.1.0": "1.11.4", "0.2.0": "1.12.0" }));
   await expect(prepareRelease(root)).rejects.toThrow("minAppVersion");
+});
+
+it("uses numeric SemVer ordering regardless of versions.json key order", async () => {
+  for (const mappings of [
+    { "0.9.0": "1.11.4", "0.10.0": "1.13.0" },
+    { "0.10.0": "1.13.0", "0.9.0": "1.11.4" },
+  ]) {
+    const root = await fixture();
+    await writeFile(path.join(root, "manifest.json"), JSON.stringify({ version: "0.11.0", minAppVersion: "1.13.0" }));
+    await writeFile(path.join(root, "package.json"), JSON.stringify({ version: "0.11.0" }));
+    await writeFile(path.join(root, "versions.json"), JSON.stringify(mappings));
+    await expect(prepareRelease(root)).resolves.toMatchObject({ version: "0.11.0" });
+  }
+});
+
+it("fails closed when no earlier compatibility mapping exists", async () => {
+  const root = await fixture();
+  await writeFile(path.join(root, "versions.json"), JSON.stringify({ "0.3.0": "1.13.0" }));
+  await expect(prepareRelease(root)).rejects.toThrow("compatibility mapping");
 });

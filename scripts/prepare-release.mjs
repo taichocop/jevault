@@ -8,6 +8,17 @@ import console from "node:console";
 const assets = ["main.js", "manifest.json", "styles.css"];
 const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
+function compareVersions(left, right) {
+  const leftParts = left.split(".").map(BigInt);
+  const rightParts = right.split(".").map(BigInt);
+  for (let index = 0; index < leftParts.length; index += 1) {
+    if (leftParts[index] !== rightParts[index]) {
+      return leftParts[index] < rightParts[index] ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
 export async function prepareRelease(root, tag) {
   const manifest = JSON.parse(await readFile(path.join(root, "manifest.json"), "utf8"));
   const pkg = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
@@ -19,9 +30,30 @@ export async function prepareRelease(root, tag) {
   if (tag !== undefined && tag !== version) {
     throw new Error("Release tag must exactly match the manifest version.");
   }
-  // versions.json は minAppVersion が変わった版だけを記載できる。
-  if (Object.hasOwn(versions, version) && versions[version] !== manifest.minAppVersion) {
-    throw new Error("versions.json minAppVersion conflicts with the manifest.");
+  if (versions === null || typeof versions !== "object" || Array.isArray(versions)) {
+    throw new Error("versions.json must be a version-to-minAppVersion object.");
+  }
+  const mappedVersions = Object.keys(versions);
+  if (mappedVersions.some((mappedVersion) => !versionPattern.test(mappedVersion))) {
+    throw new Error("versions.json contains a non-SemVer version key.");
+  }
+  if (Object.hasOwn(versions, version)) {
+    if (versions[version] !== manifest.minAppVersion) {
+      throw new Error("versions.json minAppVersion conflicts with the manifest.");
+    }
+  } else {
+    // versions.json は互換性の変更点だけを持つため、直前の有効な設定と比較する。
+    const latestPrior = mappedVersions
+      .filter((mappedVersion) => compareVersions(mappedVersion, version) < 0)
+      .reduce((latest, candidate) =>
+        latest === undefined || compareVersions(candidate, latest) > 0 ? candidate : latest,
+      undefined);
+    if (latestPrior === undefined) {
+      throw new Error("versions.json needs a compatibility mapping for this release.");
+    }
+    if (versions[latestPrior] !== manifest.minAppVersion) {
+      throw new Error("minAppVersion changed; versions.json requires an entry for this release.");
+    }
   }
 
   const stage = path.join(root, "release-assets");
