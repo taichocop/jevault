@@ -65,6 +65,29 @@ jobs:
           test "$RELEASE_TAG" != '0.1.0'
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git merge-base --is-ancestor HEAD origin/main
+      - name: Require protected release tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 公開中のタグ付け替えは照合だけでは防げないため、更新・削除禁止の有効な ruleset を要求する。
+          rule_ids="$(gh api --paginate --slurp 'repos/taichocop/jevault/rulesets?targets=tag&per_page=100' --jq '.[][] | .id')"
+          protected=false
+          for rule_id in $rule_ids; do
+            if gh api "repos/taichocop/jevault/rulesets/$rule_id" --jq '
+              select(.target == "tag" and .enforcement == "active"
+                and ((.conditions.ref_name.include // []) | index("~ALL") != null)
+                and ((.conditions.ref_name.exclude // []) | length == 0)
+                and any(.rules[]; .type == "update")
+                and any(.rules[]; .type == "deletion")) | .id
+            ' | grep -q .; then
+              protected=true
+              break
+            fi
+          done
+          if [ "$protected" != true ]; then
+            echo 'Active all-tag ruleset must restrict updates and deletions before release.' >&2
+            exit 1
+          fi
       - name: Stage and validate exact assets
         env:
           RELEASE_TAG: ${{ github.ref_name }}

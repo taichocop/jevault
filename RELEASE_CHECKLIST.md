@@ -66,6 +66,7 @@ This checklist applies to future releases. The existing 0.1.0 release was publis
 ## Release assets and publishing
 
 - [ ] Review the read-only **Validate and release** workflow result for the PR or a manually dispatched validation run. It checks tests, typecheck, lint, production build, license notice, version metadata, the exact asset set, and SHA-256 hashes without publishing.
+- [ ] Before pushing a future release tag, activate a GitHub tag ruleset targeting all tags (`~ALL`) with **Restrict updates** and **Restrict deletions**, no exclusions, and no bypass actors. The release job fails closed if this protection is absent; verify the bypass list in repository Settings. See [GitHub tag rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository).
 - [ ] Confirm `styles.css` is still required for suggestion spacing and button layout; verify candidate spacing and long-path wrapping in the test Vault.
 - [ ] Perform final diff, dependency, secret, Vault-mutation, and scope reviews before publishing. Obtain explicit human approval for the new tag push.
 - [ ] Push the approved plain version tag pointing to a commit on `main`. The tag-triggered workflow rebuilds with `npm ci`, validates `main.js`, `manifest.json`, and `styles.css`, attests those exact files, and creates the GitHub Release with the same staged bytes. Do not upload assets manually.
