@@ -1,10 +1,11 @@
-# v0.1 release checklist
+# Release checklist
 
-Complete this checklist from a clean checkout and use only a dedicated, isolated test Vault for manual verification.
+This checklist applies to future releases. The existing 0.1.0 release was published before this workflow and has no retroactive attestation. Use only a dedicated, isolated test Vault for manual verification.
 
 ## Automated verification
 
-- [ ] `npm install`
+- [ ] Decide the release version and obtain human approval before creating or pushing its exact version tag. Never rerun the release path for 0.1.0.
+- [ ] Run `npm ci` from the committed lockfile.
 - [ ] `npm test`
 - [ ] `npm run typecheck`
 - [ ] `npm run lint`
@@ -13,8 +14,8 @@ Complete this checklist from a clean checkout and use only a dedicated, isolated
 
 ## Metadata and documentation
 
-- [ ] `manifest.json`, `package.json`, and `versions.json` use the same current plugin version.
-- [ ] `versions.json` maps the current plugin version to the intended minimum Obsidian version.
+- [ ] `manifest.json` and `package.json` use the same version. The release tag must equal it exactly, without a `v` prefix.
+- [ ] If `minAppVersion` changed, update `versions.json` with the new version and its minimum Obsidian version. Obsidian does not require an entry for every release.
 - [ ] The manifest description is 250 characters or fewer, uses correct capitalization, and ends with a period.
 - [ ] `README.md` has been reviewed as end-user documentation.
 - [ ] `LICENSE` exists and contains the project-owner-selected MIT License.
@@ -64,9 +65,11 @@ Complete this checklist from a clean checkout and use only a dedicated, isolated
 
 ## Release assets and publishing
 
-- [ ] `manifest.json` is present and valid.
-- [ ] A production `main.js` has been generated.
-- [ ] Include `styles.css` for the scoped suggestion spacing and button layout; verify candidate spacing and long-path wrapping in the test Vault.
-- [ ] Verify the GitHub release contains `manifest.json`, `main.js`, and `styles.css` as binary attachments.
-- [ ] Use release tag `0.1.0`, exactly matching the manifest version; do not use `v0.1.0`.
-- [ ] Perform final diff, dependency, secret, Vault-mutation, and scope reviews before publishing.
+- [ ] Review the read-only **Validate and release** workflow result for the PR or a manually dispatched validation run. It checks tests, typecheck, lint, production build, license notice, version metadata, the exact asset set, and SHA-256 hashes without publishing.
+- [ ] Confirm `styles.css` is still required for suggestion spacing and button layout; verify candidate spacing and long-path wrapping in the test Vault.
+- [ ] Perform final diff, dependency, secret, Vault-mutation, and scope reviews before publishing. Obtain explicit human approval for the new tag push.
+- [ ] Push the approved plain version tag pointing to a commit on `main`. The tag-triggered workflow rebuilds with `npm ci`, validates `main.js`, `manifest.json`, and `styles.css`, attests those exact files, and creates the GitHub Release with the same staged bytes. Do not upload assets manually.
+- [ ] Confirm the GitHub Release has exactly these three binary attachments and compare their SHA-256 digests with the workflow's recorded hashes.
+- [ ] Download each asset and verify provenance with `gh attestation verify FILE --repo taichocop/jevault --signer-workflow taichocop/jevault/.github/workflows/release.yml`.
+- [ ] Confirm the released `main.js` retains the required TypeSafe SDK license notice.
+- [ ] Install the Release attachments in an isolated Obsidian Vault and complete the clean-install checks above.

@@ -1,0 +1,100 @@
+name: Validate and release
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run lint
+      # build は typecheck と production main.js の license notice 検証も実行する。
+      - run: npm run build
+      - run: node scripts/prepare-release.mjs
+      - run: sha256sum --check release-assets.sha256
+      - run: cat release-assets.sha256
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+      - name: Check trusted release ref
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          test "$RELEASE_TAG" != '0.1.0'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor HEAD origin/main
+      - name: Stage and validate exact assets
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node scripts/prepare-release.mjs "$RELEASE_TAG"
+          sha256sum --check release-assets.sha256
+          cat release-assets.sha256
+      # この3ファイルだけを attest し、後続も同じ stage path を使用する。
+      - name: Attest release assets
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: |
+            release-assets/main.js
+            release-assets/manifest.json
+            release-assets/styles.css
+      - name: Publish the attested bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          sha256sum --check release-assets.sha256
+          if gh release view "$RELEASE_TAG" --repo taichocop/jevault >/dev/null 2>&1; then
+            echo 'Release already exists; refusing to modify it.' >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" \
+            release-assets/main.js \
+            release-assets/manifest.json \
+            release-assets/styles.css \
+            --repo taichocop/jevault \
+            --verify-tag \
+            --title "Jevault $RELEASE_TAG" \
+            --notes-from-tag
