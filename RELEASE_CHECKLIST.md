@@ -1,10 +1,11 @@
-# v0.1 release checklist
+# Release checklist
 
-Complete this checklist from a clean checkout and use only a dedicated, isolated test Vault for manual verification.
+This checklist applies to future releases. The existing 0.1.0 release was published before this workflow and has no retroactive attestation. Use only a dedicated, isolated test Vault for manual verification.
 
 ## Automated verification
 
-- [ ] `npm install`
+- [ ] Decide the release version and obtain human approval before creating or pushing its exact version tag. Never rerun the release path for 0.1.0.
+- [ ] Run `npm ci` from the committed lockfile.
 - [ ] `npm test`
 - [ ] `npm run typecheck`
 - [ ] `npm run lint`
@@ -13,8 +14,8 @@ Complete this checklist from a clean checkout and use only a dedicated, isolated
 
 ## Metadata and documentation
 
-- [ ] `manifest.json`, `package.json`, and `versions.json` use the same current plugin version.
-- [ ] `versions.json` maps the current plugin version to the intended minimum Obsidian version.
+- [ ] `manifest.json` and `package.json` use the same version. The release tag must equal it exactly, without a `v` prefix.
+- [ ] If `minAppVersion` changed, update `versions.json` with the new version and its minimum Obsidian version. Obsidian does not require an entry for every release.
 - [ ] The manifest description is 250 characters or fewer, uses correct capitalization, and ends with a period.
 - [ ] `README.md` has been reviewed as end-user documentation.
 - [ ] `LICENSE` exists and contains the project-owner-selected MIT License.
@@ -64,9 +65,15 @@ Complete this checklist from a clean checkout and use only a dedicated, isolated
 
 ## Release assets and publishing
 
-- [ ] `manifest.json` is present and valid.
-- [ ] A production `main.js` has been generated.
-- [ ] Include `styles.css` for the scoped suggestion spacing and button layout; verify candidate spacing and long-path wrapping in the test Vault.
-- [ ] Verify the GitHub release contains `manifest.json`, `main.js`, and `styles.css` as binary attachments.
-- [ ] Use release tag `0.1.0`, exactly matching the manifest version; do not use `v0.1.0`.
-- [ ] Perform final diff, dependency, secret, Vault-mutation, and scope reviews before publishing.
+- [ ] Review the read-only **Validate and release** workflow result for the PR or a manually dispatched validation run. It checks tests, typecheck, lint, production build, license notice, version metadata, the exact asset set, and SHA-256 hashes without publishing.
+- [ ] Before pushing the approved release tag, the repository owner opens **Settings → Rules → Rulesets** and confirms the applicable tag ruleset is active, covers all tags (`~ALL`), has no ref exclusions, restricts tag updates and deletions, and has an empty bypass list. Only then push the tag. The release job checks the machine-readable target, enforcement, coverage, exclusions, and restrictions; the empty bypass list is an owner-controlled release prerequisite, not an automated check. Repository administrators and ruleset editors are trusted release-configuration operators. See [GitHub tag rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository).
+- [ ] Before pushing the approved release tag, the owner audits every actor and credential able to create tags, including collaborators with write access, GitHub Apps, automation tokens, and write-enabled deploy keys. Only trusted release operators or approved automation may retain tag-creation access. The tag ruleset above restricts updates and deletions, not initial creation; any tag creator can trigger the release job. See [GitHub deploy keys](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys).
+- [ ] Before pushing the approved release tag, the owner enables **Settings → Releases → Enable release immutability** and confirms that only trusted release operators and apps can edit Releases during draft creation and asset upload. Immutability protects assets only after publication; the protected tag covers tag updates during the draft window. This setting applies to future releases, not the existing 0.1.0 release. See [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases).
+- [ ] Confirm `styles.css` is still required for suggestion spacing and button layout; verify candidate spacing and long-path wrapping in the test Vault.
+- [ ] Perform final diff, dependency, secret, Vault-mutation, and scope reviews before publishing. Obtain explicit human approval for the new tag push.
+- [ ] Push the approved plain version tag pointing to a commit on `main`. The tag-triggered workflow rebuilds with `npm ci`, validates `main.js`, `manifest.json`, and `styles.css`, attests those exact files, and creates the GitHub Release with the same staged bytes. Do not upload assets manually.
+- [ ] Confirm the GitHub Release has exactly these three binary attachments and compare their SHA-256 digests with the workflow's recorded hashes.
+- [ ] Confirm the published Release shows **Immutable** before treating its attachments as protected from later replacement.
+- [ ] Download each asset and verify provenance with `gh attestation verify FILE --repo taichocop/jevault --signer-workflow taichocop/jevault/.github/workflows/release.yml`.
+- [ ] Confirm the released `main.js` retains the required TypeSafe SDK license notice.
+- [ ] Install the Release attachments in an isolated Obsidian Vault and complete the clean-install checks above.

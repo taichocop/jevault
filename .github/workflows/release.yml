@@ -1,0 +1,130 @@
+name: Validate and release
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run lint
+      # build は typecheck と production main.js の license notice 検証も実行する。
+      - run: npm run build
+      - run: node scripts/prepare-release.mjs
+      - run: sha256sum --check release-assets.sha256
+      - run: cat release-assets.sha256
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+      - name: Check trusted release ref
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          test "$RELEASE_TAG" != '0.1.0'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor HEAD origin/main
+      - name: Require protected release tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # API で検証可能なタグ保護を要求する。bypass actor がないことは release 前に owner が確認する。
+          rule_ids="$(gh api --paginate --slurp 'repos/taichocop/jevault/rulesets?targets=tag&per_page=100' --jq '.[][] | .id')"
+          protected=false
+          for rule_id in $rule_ids; do
+            if gh api "repos/taichocop/jevault/rulesets/$rule_id" --jq '
+              select(.target == "tag" and .enforcement == "active"
+                and ((.conditions.ref_name.include // []) | index("~ALL") != null)
+                and ((.conditions.ref_name.exclude // []) | length == 0)
+                and any(.rules[]; .type == "update")
+                and any(.rules[]; .type == "deletion")) | .id
+            ' | grep -q .; then
+              protected=true
+              break
+            fi
+          done
+          if [ "$protected" != true ]; then
+            echo 'Active all-tag ruleset must restrict updates and deletions before release.' >&2
+            exit 1
+          fi
+      - name: Stage and validate exact assets
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node scripts/prepare-release.mjs "$RELEASE_TAG"
+          sha256sum --check release-assets.sha256
+          cat release-assets.sha256
+      # この3ファイルだけを attest し、後続も同じ stage path を使用する。
+      - name: Attest release assets
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: |
+            release-assets/main.js
+            release-assets/manifest.json
+            release-assets/styles.css
+      - name: Publish the attested bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          sha256sum --check release-assets.sha256
+          if gh release view "$RELEASE_TAG" --repo taichocop/jevault >/dev/null 2>&1; then
+            echo 'Release already exists; refusing to modify it.' >&2
+            exit 1
+          fi
+          # 実行開始後のタグ付け替えで別コミットの成果物を公開しない。
+          remote_refs="$(git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")"
+          remote_commit="$(printf '%s\n' "$remote_refs" | awk -v tag="$RELEASE_TAG" '$2 == "refs/tags/" tag "^{}" { print $1 }')"
+          if [ -z "$remote_commit" ]; then
+            remote_commit="$(printf '%s\n' "$remote_refs" | awk -v tag="$RELEASE_TAG" '$2 == "refs/tags/" tag { print $1 }')"
+          fi
+          test "$remote_commit" = "$GITHUB_SHA"
+          gh release create "$RELEASE_TAG" \
+            release-assets/main.js \
+            release-assets/manifest.json \
+            release-assets/styles.css \
+            --repo taichocop/jevault \
+            --verify-tag \
+            --title "Jevault $RELEASE_TAG" \
+            --notes-from-tag
