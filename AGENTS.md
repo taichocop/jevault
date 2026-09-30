@@ -10,6 +10,7 @@ Prioritize: user data safety, privacy, correctness, simplicity, testability, the
 
 - Follow the approved GitHub Issue and relevant local `docs/` sections. Report material conflicts instead of guessing.
 - Work in this order: Issue → human approval → branch → implementation → tests → diff review → commit → PR.
+- Continue after PR through [current-HEAD review and bounded repair](agent/PR_REVIEW_LOOP.md) to HUMAN MERGE READY; merge remains a human gate.
 - Implement only the active Issue; do not add roadmap features.
 - Approved Issue execution follows [agent/LOOP.md](agent/LOOP.md), read-only review follows [agent/REVIEW.md](agent/REVIEW.md), and mandatory stops follow [agent/STOP_CONDITIONS.md](agent/STOP_CONDITIONS.md).
 

@@ -32,8 +32,10 @@ By default, each of these loops permits at most three repair iterations:
 - Focused validation: failure → minimum repair → focused re-validation.
 - Full verification: failure → minimum repair → focused validation → full
   re-verification.
-- Review: findings → minimum repair → focused/full validation → read-only
+- Local review: findings → minimum repair → focused/full validation → read-only
   re-review.
+- Post-PR actionable review: classified findings → minimum repair → focused/full
+  validation → Safety Gate/local review → commit/push → new-HEAD GitHub review.
 
 Count an iteration when beginning the repair, not when it succeeds. The initial
 validation/review is not a repair iteration. After the third iteration, STOP
@@ -60,6 +62,27 @@ iteration never authorizes a forbidden workaround. OPTIONAL/style findings do
 not require repair and do not extend loops. Relevant edits invalidate prior
 green validation/review evidence; re-validate the resulting candidate.
 
+## Post-PR waiting and infrastructure
+
+Apply [PR_REVIEW_LOOP.md](PR_REVIEW_LOOP.md#automatic-review-first-finite-observation)
+through PR creation and every repair push: maximum 16 snapshots over 15 minutes
+per candidate, at 60-second intervals; at most one manual request per HEAD and
+one infrastructure retry within that same allowance/deadline. Do not reset
+repair or semantic-failure counters on a new HEAD/comment/thread/context.
+Repeated observations of the same still-pending job are waiting, not new failure
+occurrences; repeated failed attempts at the same root cause do count.
+
+Timeout, unverified reviewed SHA/surfaces, red or missing current-HEAD CI, or
+provider/container failure prevents HUMAN MERGE READY. Stop with the exact
+state and NOT VERIFIED evidence. No speculative product repair for provider
+failures, infinite polling, or automatic Security Review. Human resume may
+renew a recorded observation window, but cannot silently reset manual requests,
+repair budgets, or failure history.
+Empty successful GitHub reads cannot establish that Codex has no unpublished
+queued trigger. Without the HEAD-bound integration status evidence defined in
+PR_REVIEW_LOOP, record trigger UNKNOWN and stop at the deadline; do not send a
+manual fallback solely because the automatic observation window elapsed.
+
 ## GitHub authentication fallback
 
 Stop unavailable GitHub actions; never request, output, store, or bypass
@@ -75,6 +98,10 @@ When PR creation is blocked, report exactly:
 PR CREATION BLOCKED — GitHub authentication/permission required
 ```
 
+For unavailable post-PR actions, report STOP with the blocked operation,
+PR number/URL, current/last-known HEAD, review/CI/thread state and NOT VERIFIED
+items. Do not claim HUMAN MERGE READY without all current-HEAD gates.
+
 ## STOP report and resume
 
 Report what was completed, what failed, concrete evidence (command/result,
@@ -87,6 +114,7 @@ stash, force push, or broaden scope to hide the stop.
 Resume only after the blocking condition is resolved and any required explicit
 approval is recorded. Reconfirm scope/baseline and re-run invalidated checks.
 Record the human decision for any repair-budget reset instead of silently
-discarding failure history. Successful completion still ends at a PR for human
-review; merge, tags, releases, Community Directory changes, and deployment
-remain outside the harness's authority.
+discarding failure history. Successful completion ends at HUMAN MERGE READY only after the
+[current-HEAD gates](PR_REVIEW_LOOP.md#terminal-gate-and-report); merge, auto-merge,
+tags, releases, Community Directory changes, and deployment remain outside
+the harness's authority.
