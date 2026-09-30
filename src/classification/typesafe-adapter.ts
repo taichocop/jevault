@@ -10,6 +10,9 @@ import type { IncomingMessage } from "http";
 import { request as httpsRequest } from "https";
 
 import type { NoteState } from "../note-service";
+import type { TagCandidate } from "../tags/tag-candidate";
+import type { TagEvaluation, TagEvaluationResult } from "../tags/tag-evaluation";
+import type { TagEvaluator } from "../tags/tag-evaluator";
 import type {
   ClassificationCandidate,
   ClassificationResult,
@@ -19,6 +22,7 @@ import { throwIfCancelled } from "./classification-cancellation";
 import {
   InvalidTypeSafeResponseError,
   NetworkError,
+  NoCandidatesError,
   TypeSafeApiError,
 } from "./classification-errors";
 import type { FolderCandidate } from "./folder-candidate";
@@ -45,7 +49,7 @@ interface UnknownRecord {
 export { InvalidTypeSafeResponseError } from "./classification-errors";
 
 /** TypeSafe固有のrequest構築・通信・response変換をdomainへ漏らさないadapter。 */
-export class TypeSafeAdapter implements Classifier {
+export class TypeSafeAdapter implements Classifier, TagEvaluator {
   private readonly execute: SystemOneExecutor;
 
   constructor(
@@ -112,6 +116,76 @@ export class TypeSafeAdapter implements Classifier {
 
     throwIfCancelled(signal);
     return mapTypeSafeResponse(response, candidates);
+  }
+
+  async evaluate(
+    note: NoteState,
+    candidates: TagCandidate[],
+    signal?: AbortSignal,
+  ): Promise<TagEvaluationResult> {
+    throwIfCancelled(signal);
+    if (candidates.length === 0) throw new NoCandidatesError();
+
+    // await中の呼び出し元による変更で、送信済みTagのidentityを取り違えない。
+    const mapping = candidates.map((candidate, index) => ({
+      key: `q_${String(index + 1).padStart(3, "0")}`,
+      candidate: { ...candidate },
+    }));
+    const ids = new Set(mapping.map(({ candidate }) => candidate.id));
+    const names = new Set(mapping.map(({ candidate }) => candidate.name));
+    if (ids.size !== mapping.length || names.size !== mapping.length) {
+      throw new InvalidTypeSafeResponseError();
+    }
+    const request: SystemOneRequest = {
+      state: { title: note.title, path: note.path, body: note.body },
+      questions: Object.fromEntries(mapping.map(({ key, candidate }) => [
+        key,
+        choice(
+          `Is it appropriate, based on this note's content, to apply the existing tag ${JSON.stringify(candidate.name)}?`,
+          {
+            match: `This existing tag is appropriate for the note.${candidate.description === undefined ? "" : ` Tag context: ${candidate.description}`}`,
+            other: "This existing tag is not appropriate for the note.",
+          },
+        ),
+      ])),
+    };
+    throwIfCancelled(signal);
+    let response: unknown;
+    try {
+      response = await this.execute(request, signal);
+    } catch (error: unknown) {
+      throwIfCancelled(signal);
+      // provider詳細を漏らさず、Folder評価と同じエラー境界を保つ。
+      if (this.classifyProviderFailure(error) === "network") throw new NetworkError();
+      throw new TypeSafeApiError();
+    }
+    throwIfCancelled(signal);
+    const answers = asRecord(asRecord(response).answers);
+    const keys = new Set(mapping.map(({ key }) => key));
+    // 欠落・未知Questionを含むbundleは、一部の成功も返さず全体を拒否する。
+    if (Object.keys(answers).length !== mapping.length ||
+      Object.keys(answers).some((key) => !keys.has(key))) {
+      throw new InvalidTypeSafeResponseError();
+    }
+    const evaluations = mapping.map(({ key, candidate }): TagEvaluation => {
+      if (!Object.prototype.hasOwnProperty.call(answers, key)) throw new InvalidTypeSafeResponseError();
+      const answer = asRecord(answers[key]);
+      if (answer.type !== "choice" ||
+        (answer.choice !== "match" && answer.choice !== "other")) {
+        throw new InvalidTypeSafeResponseError();
+      }
+      const matchProbability = validateProbability(asRecord(answer.probabilities).match);
+      const providerConfidence = validateOptionalProbability(answer.confidence);
+      return {
+        tagId: candidate.id,
+        tagName: candidate.name,
+        choice: answer.choice,
+        matchProbability,
+        ...(providerConfidence === undefined ? {} : { providerConfidence }),
+      };
+    });
+    throwIfCancelled(signal);
+    return { evaluations };
   }
 }
 
