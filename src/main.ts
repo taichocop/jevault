@@ -14,6 +14,12 @@ import { ClassificationErrorModal } from "./suggestion/classification-error-moda
 import { SuggestionModal } from "./suggestion/suggestion-modal";
 import { SuggestionSession } from "./suggestion/suggestion-session";
 import { VaultService } from "./vault-service";
+import { ExistingTagSnapshotService } from "./tags/existing-tag-snapshot";
+import { TagDiscoveryService } from "./tags/tag-discovery-service";
+import { createTagErrorPresentation } from "./tags/tag-error-presentation";
+import { TagSuggestionCommand } from "./tags/tag-suggestion-command";
+import { TagSuggestionModal } from "./tags/tag-suggestion-modal";
+import { TagSuggestionService } from "./tags/tag-suggestion-service";
 
 export default class JevaultPlugin extends Plugin {
   settings: JevaultSettings = loadSettings(undefined);
@@ -22,6 +28,7 @@ export default class JevaultPlugin extends Plugin {
   vaultService!: VaultService;
   classificationService!: ClassificationService;
   classificationCommand?: ClassificationCommand;
+  tagSuggestionCommand?: TagSuggestionCommand;
 
   async onload(): Promise<void> {
     this.settings = loadSettings(await this.loadData());
@@ -73,6 +80,36 @@ export default class JevaultPlugin extends Plugin {
         void this.classificationCommand?.execute();
       },
     });
+    this.tagSuggestionCommand = new TagSuggestionCommand({
+      tagSuggestionService: new TagSuggestionService(
+        this.noteService,
+        new TagDiscoveryService(this.app.vault, this.app.metadataCache),
+        this.secretService,
+        (apiKey) => new TypeSafeAdapter(apiKey),
+        () => this.settings,
+      ),
+      existingTags: new ExistingTagSnapshotService(this.app.vault, this.app.metadataCache),
+      getActiveNotePath: () => this.app.workspace.getActiveFile()?.path ?? null,
+      showLoading: () => {
+        const notice = new Notice("Jevault is suggesting tags for this note...", 0);
+        return { hide: () => notice.hide() };
+      },
+      showSuggestions: (outcome, snapshot, ownerSignal) => {
+        new TagSuggestionModal(this.app, outcome, snapshot, ownerSignal).open();
+      },
+      showError: (presentation, retry, ownerSignal) => {
+        new ClassificationErrorModal(
+          this.app, presentation, retry, ownerSignal, createTagErrorPresentation,
+        ).open();
+      },
+    });
+    this.addCommand({
+      id: "suggest-tags-for-current-note",
+      name: "Suggest tags for current note",
+      callback: () => {
+        void this.tagSuggestionCommand?.execute();
+      },
+    });
     const saveQueue = new SettingsSaveQueue(
       async (snapshot) => this.saveData(snapshot),
       () => console.error("Failed to save Jevault settings."),
@@ -92,6 +129,8 @@ export default class JevaultPlugin extends Plugin {
   }
 
   onunload(): void {
+    this.tagSuggestionCommand?.dispose();
+    this.tagSuggestionCommand = undefined;
     this.classificationCommand?.dispose();
     this.classificationCommand = undefined;
   }

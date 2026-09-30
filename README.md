@@ -1,6 +1,6 @@
 # Jevault
 
-Jevault is an Obsidian desktop plugin that suggests destination folders for Markdown notes from the folders that already exist in your vault.
+Jevault is an Obsidian desktop plugin that suggests destination folders for Markdown notes from the folders that already exist in your vault. It also provides read-only suggestions from existing Vault tags (v0.3 Tag Suggest).
 
 ```text
 Active Markdown note
@@ -22,7 +22,7 @@ Jevault suggests existing destination folders. You can explicitly select a sugge
 
 Jevault uses the TypeSafe API for classification, so it does not provide an offline classification mode.
 
-Each classification or **Retry** request that reaches TypeSafe consumes TypeSafe-managed credits from your account. Depending on your credit balance, you may need to purchase credits from TypeSafe and incur TypeSafe charges. TypeSafe may offer promotional credits, but it controls their availability and terms; Jevault does not guarantee them. See [TypeSafe's current terms](https://typesafe.ai/legal/mca) and [pricing information](https://typesafe.ai/) for details.
+Each classification, Tag Suggest, or explicit **Retry** request that reaches TypeSafe consumes TypeSafe-managed credits from your account. Depending on your credit balance, you may need to purchase credits from TypeSafe and incur TypeSafe charges. TypeSafe may offer promotional credits, but it controls their availability and terms; Jevault does not guarantee them. See [TypeSafe's current terms](https://typesafe.ai/legal/mca) and [pricing information](https://typesafe.ai/) for details.
 
 ## Setup
 
@@ -50,14 +50,28 @@ If a retryable error is shown, selecting **Retry** explicitly starts another cla
 
 Manual move is local and sends no additional TypeSafe request. Once the Obsidian move API starts, closing the modal cannot abort it; Jevault reports its result and performs no automatic rollback. Obsidian may update links according to your settings. Jevault does not rewrite note content or frontmatter itself.
 
+### Read-only Tag Suggest
+
+1. Open a Markdown note.
+2. Open the Command Palette.
+3. Run **Jevault: Suggest tags for current note**.
+4. Wait for evaluation to finish.
+5. Review suggested existing tags, match probabilities, and **Already on note** annotations.
+6. Select **Close**, press **Esc**, or close the modal.
+
+Already-on-note tags remain in the suggestions. No matching suggestions is a normal empty result; no existing Vault tag candidates is a separate error. If the evaluated note's metadata is unavailable or its file identity has changed, existing-tag state is shown as unknown. Switching active notes does not change the note used for the annotation. A retryable error offers **Retry**, which starts a new request only when clicked. Closing the error modal cancels a pending Retry.
+
+Tag Suggest is read-only: no manual apply yet, no automatic Tag mutation, and no free-form/new Tag generation. Only existing Vault tags are candidates. Opening or closing the result modal makes no request and changes no note, tag, or frontmatter.
+
 ## Privacy and external services
 
-Jevault uses TypeSafe, a third-party service, to classify notes. When you explicitly run **Jevault: Classify current note** or select **Retry**, Jevault may send the following data to the TypeSafe API:
+Jevault uses TypeSafe, a third-party service, to classify notes. When you explicitly run **Jevault: Classify current note**, **Jevault: Suggest tags for current note**, or select **Retry**, Jevault may send the following data to the TypeSafe API:
 
 - The active note title
 - The Vault-relative note path
 - The full Markdown note body
-- Candidate folder paths
+- Candidate folder paths for folder classification
+- Existing Vault Tag candidate names and optional Tag candidate descriptions, when present, for Tag Suggest
 
 Plugin load, Settings display, and Suggestion UI display do not send note data. Jevault has no backend of its own and implements no telemetry, analytics, tracking, background classification, or background upload.
 
@@ -70,6 +84,7 @@ See [PRIVACY.md](PRIVACY.md) for details and the [TypeSafe privacy policy](https
 - No filename changes, folder creation, deletion, tag changes, or custom content/frontmatter/link rewriting
 - Obsidian manages standard link updates according to your preferences
 - Can only suggest existing, non-excluded Vault folders
+- Tag Suggest uses existing Vault tags only; no manual apply, automatic Tag mutation, or free-form/new Tag generation
 - Depends on TypeSafe API availability
 
 ## Manual installation
