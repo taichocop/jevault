@@ -76,3 +76,24 @@ leaves reviewer mode to repair BLOCKER/REQUIRED findings only when permitted by
 default; the same root-cause failure observed three times requires STOP.
 Re-review the resulting complete diff, not just the last fix. A green review
 does not authorize merge, release, or scope expansion.
+
+## GitHub review evidence
+
+After PR creation/push, the implementer collects the paginated, current-HEAD
+GitHub evidence defined in [PR_REVIEW_LOOP.md](PR_REVIEW_LOOP.md). Give the
+read-only reviewer the PR number/URL, current and reviewed SHAs, Code Review
+status/trigger, summaries, top-level comments, submitted reviews, inline threads
+with resolved/outdated state, current-HEAD CI, complete diff, and repair counts.
+The reviewer classifies external findings using the same BLOCKER/REQUIRED/
+OPTIONAL table and authoritative contracts, including the active product Issue
+when this harness is used for product work. A positive summary cannot dismiss
+an unresolved actionable thread; an old/outdated finding needs an applicability
+check, not an automatic repair. Explain incorrect findings with concrete evidence.
+
+The reviewer performs no GitHub mutations or repairs. Return classifications,
+evidence gaps and the minimum permitted repair to the implementer. Required
+unavailable surfaces or unbound reviewed SHAs are NOT VERIFIED. Leave review
+mode before repair or thread resolution. After repair, run focused validation,
+full verification, Safety Gate and local read-only review before push; collect
+new-HEAD evidence for GitHub re-review. Local review cannot substitute for the
+current-HEAD Codex Code Review or CI required for HUMAN MERGE READY.

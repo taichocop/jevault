@@ -62,6 +62,8 @@ focused validation: command, result, applicable revision
 full verification: command, result, applicable revision
 open review findings
 repair counts: focused / full verification / review
+post-PR: PR number/URL, current HEAD, reviewed SHA, trigger/status, CI
+threads/findings, post-PR repair count, per-HEAD manual requests, wait deadline
 failure signatures and occurrence counts
 stop reason (if stopped)
 ```
@@ -138,10 +140,13 @@ Commit only after green validation, resolved actionable findings, a green
 Safety Gate, and final diff review. Stage only Issue files; inspect
 `git diff --cached` and `git diff --cached --check` before committing. Push the
 Issue branch and create a PR describing the final behavior, actual validation,
-risks/NOT VERIFIED items, and the active Issue. Successful automation ends at
-PR creation, ready for human review.
+risks/NOT VERIFIED items, and the active Issue. PR creation is a checkpoint,
+not successful completion. Continue through [PR_REVIEW_LOOP.md](PR_REVIEW_LOOP.md):
+observe existing automatic Codex Review and CI for the exact current HEAD,
+classify findings, repair within finite limits, and stop at HUMAN MERGE READY
+for human merge.
 
-Do not merge, force push main, tag, release, change the Community Directory, or
+Do not merge, enable auto-merge, force push main, tag, release, change the Community Directory, or
 deploy. Version bumps need explicit active-Issue scope. Merge/release remain
 human gates; this harness grants no approval for them.
 
