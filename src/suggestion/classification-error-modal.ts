@@ -21,6 +21,7 @@ export class ClassificationErrorModal extends Modal {
       | ((signal?: AbortSignal) => Promise<RetryResult>)
       | undefined,
     private readonly ownerSignal?: AbortSignal,
+    private readonly mapError: (error: unknown) => ErrorPresentation = createErrorPresentation,
   ) {
     super(app);
   }
@@ -92,7 +93,7 @@ export class ClassificationErrorModal extends Modal {
       }
     } catch (error) {
       if (!lifetime.signal.aborted && !(error instanceof ClassificationCancelledError)) {
-        this.presentation = createErrorPresentation(error);
+        this.presentation = this.mapError(error);
       }
     } finally {
       // Close・unload・開き直し後は、古い処理のfinallyでもDOMを書き換えない。
