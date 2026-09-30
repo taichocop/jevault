@@ -9,6 +9,7 @@
     "dev": "node esbuild.config.mjs",
     "build": "npm run typecheck && node esbuild.config.mjs production && npm run verify:licenses",
     "verify:licenses": "node scripts/verify-license-notices.mjs",
+    "verify": "node scripts/verify.mjs",
     "test": "vitest run",
     "spike:typesafe": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc --noEmit",
