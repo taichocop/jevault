@@ -38,13 +38,17 @@ The following synthetic inputs exercise both contract branches using that SHA:
 | --- | --- |
 | New HEAD has automatic pending/running review | Wait; manual count stays 0; consume completion only if SHA matches |
 | New HEAD already has completed automatic review | Consume it; manual count stays 0 |
-| No review or outstanding trigger through minute 5; successful complete reads; manual count 0 | Refresh HEAD/surfaces, send one SHA-bound fallback; record count 1; consume matching result |
+| No review through minute 5; authoritative HEAD-bound Codex integration record explicitly reports terminal failure/not queued, with no outstanding successor; manual count 0 | Refresh HEAD/surfaces and that record, send one SHA-bound fallback; record count 1; consume matching result |
+| Empty comments/reviews/checks through minute 5, but no authoritative integration queue/terminal record | Trigger UNKNOWN; no fallback; STOP / NOT VERIFIED at deadline, even if all reads succeed |
 | Still absent/pending at minute 15 after fallback | STOP / NOT VERIFIED; no second request |
 | Missing surface, ambiguous identity, or a prior unbound manual request | NOT VERIFIED; do not infer absence and post |
 
 Walkthrough result: both trigger modes are supported without a global
 assumption. Automatic re-review and fallback timing were simulated, not
 observed live; the historical request/result supplies realistic evidence shape.
+No historical request is proof that the current contract's positive trigger
+evidence requirement was met. An unobservable queued PR-open review is covered
+by the UNKNOWN row, preventing duplicate requests during publication delay.
 
 ## C. Stale clean review
 

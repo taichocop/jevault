@@ -75,9 +75,23 @@ Observe after PR creation and every push. For the exact HEAD:
 1. Completed Code Review: consume the result and inspect all findings/CI.
 2. Pending/running review or an automatic trigger already recorded: wait;
    do not send a duplicate manual request.
-3. No current-HEAD review/trigger: give automation the bounded opportunity
-   below. Never assume every later push auto-reviews or always needs a comment.
+3. No visible current-HEAD review: give automation the bounded opportunity
+   below, but treat trigger state as unknown until positively established.
+   Never assume every later push auto-reviews or always needs a comment.
 4. Unknown state, failed reads, or ambiguous SHA: NOT VERIFIED; no blind trigger.
+
+Successful empty reads do not prove that an automatic trigger is absent: an
+integration may have queued work without publishing a summary/comment/check.
+Use an authenticated Codex integration status artifact bound to the exact HEAD:
+a Codex-authored summary explicitly reporting a terminal failed Code Review,
+or an integration job/event record explicitly reporting not queued or cancelled
+with no queued/running successor. Record the artifact URL/ID, full SHA and status;
+pending/running records prohibit fallback. GitHub Actions CI is not evidence of
+the separate Codex queue. If the integration exposes no such authoritative
+record, or it cannot be read completely, the outstanding-trigger predicate is
+UNKNOWN: stop at the bounded deadline without a manual request. Neither elapsed
+time nor empty comments/reviews/checks nor a generic setup message lacking a
+reviewed SHA can establish this predicate.
 
 Default per candidate: inspect immediately, then at most once every 60 seconds
 for 5 minutes (at most 6 snapshots including the initial one). At the end,
@@ -86,7 +100,8 @@ refresh HEAD and all trigger surfaces. A manual fallback is allowed only if:
 - HEAD is known and unchanged;
 - no completed or pending/running current-HEAD Code Review exists;
 - automation had the full 5-minute opportunity;
-- no automatic trigger remains outstanding;
+- no automatic trigger remains outstanding, positively established by the
+  HEAD-bound integration record above (not inferred from empty reads);
 - no manual Code Review request was already sent for that HEAD, including
   PR history and preserved state from earlier contexts.
 

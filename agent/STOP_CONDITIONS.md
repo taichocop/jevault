@@ -78,6 +78,10 @@ state and NOT VERIFIED evidence. No speculative product repair for provider
 failures, infinite polling, or automatic Security Review. Human resume may
 renew a recorded observation window, but cannot silently reset manual requests,
 repair budgets, or failure history.
+Empty successful GitHub reads cannot establish that Codex has no unpublished
+queued trigger. Without the HEAD-bound integration status evidence defined in
+PR_REVIEW_LOOP, record trigger UNKNOWN and stop at the deadline; do not send a
+manual fallback solely because the automatic observation window elapsed.
 
 ## GitHub authentication fallback
 
