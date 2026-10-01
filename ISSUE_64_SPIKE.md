@@ -22,10 +22,12 @@
 
 This is a bounded investigation result, not a claim that no future public API
 could solve the problem. No production behavior, authorization, Apply wiring,
-dependency, version, release, or user Vault has been changed. Desktop runtime
-execution for this spike is **NOT VERIFIED**. The investigation and synthetic
-evidence are reviewable; full Issue completion / HUMAN MERGE READY must not be
-claimed from unit fakes or the earlier PR's runtime observations.
+dependency, version, release, or user Vault has been changed. Human-assisted
+Desktop helper execution verified the limited unchanged-A, active-switch and
+C/D/E observations recorded below. Cleanup was confirmed after input recovered.
+Remaining fixture semantics and interleavings are **NOT VERIFIED**.
+HUMAN MERGE READY must not be claimed from unit fakes, earlier PR observations, or review of the prior
+HEAD before these report updates are committed and reviewed.
 
 ## Inputs and boundaries
 
@@ -307,15 +309,15 @@ separate optional runtime plugin is not imported by production or normal tests.
 
 | Required case | Automated evidence | Desktop status |
 | --- | --- | --- |
-| 1 / evidence 1,5: unchanged pre-indexed/no changed | Matching read snapshot succeeds; actual production preparation remains freshness-unverified without emitting changed | NOT VERIFIED in this spike; PR #63 historical observation only |
+| 1 / evidence 1,5: unchanged pre-indexed/no changed | Matching read snapshot succeeds; actual production preparation remains freshness-unverified without emitting changed | Read-only helper VERIFIED on unchanged A: snapshot-match / freshness-unverified / changed 0; real TypeSafe suggestion and production Apply UI NOT VERIFIED |
 | 2 / evidence 2: evaluated vs changed body | Same-stat different string rejects; pending read/hash edits reject when observed; delayed-event race explicitly remains | NOT VERIFIED |
-| 3 / evidence 6: existing inline selected tag | Literal/position positive and stale cache omission exercised; no additions ever performed | Parser recognition NOT VERIFIED |
+| 3 / evidence 6: existing inline selected tag | Literal/position positive and stale cache omission exercised; no additions ever performed | A's two synthetic inline tags visibly rendered by Obsidian and matched cached positions/current literals; duplicate-free mutation NOT VERIFIED |
 | 4 / evidence 7: existing frontmatter | Fake scalar/list delegation and failures; supplied body passed unchanged to helper boundary | Real helpers NOT VERIFIED |
-| 5 / evidence 8: hierarchy / Unicode | #programming/aws and #日本語 positive literals, positions, helper-output fixtures | Real semantics/offsets NOT VERIFIED |
+| 5 / evidence 8: hierarchy / Unicode | #programming/aws and #日本語 positive literals, positions, helper-output fixtures | A's hierarchy literal and cached position matched; Unicode and general semantics NOT VERIFIED |
 | 6: conservative false positives | Code fence, inline code, escape, URL, heading, ordinary hash, longer prefix; case false negative | Markdown context recognition NOT VERIFIED |
 | 7 / evidence 9,10: stale cache/new body | Empty old cache fails to discover present current literal; matching position in changed code context cannot certify grammar | Cache timing NOT VERIFIED |
-| 8 / evidence 3,4: exact source | Rename/move/delete/replacement before/during read reject; active switch/unrelated events read/hash original only | NOT VERIFIED |
-| Evidence 11: Close/Retry/unload/cancel | Pending read starts no later hash on invalidation; pending hash cannot publish; listeners removed; Retry distinct; prior lifecycle tests retained | NOT VERIFIED |
+| 8 / evidence 3,4: exact source | Rename/move/delete/replacement before/during read reject; active switch/unrelated events read/hash original only | Active switch A → B without restarting reproduced original A's matching read and tag pairs; remaining interleavings NOT VERIFIED |
+| Evidence 11: Close/Retry/unload/cancel | Pending read starts no later hash on invalidation; pending hash cannot publish; listeners removed; Retry distinct; prior lifecycle tests retained | Repeated Start, Close invocation and disabled/removed helper confirmed; physical listener/hash counters and pending-work timing NOT VERIFIED |
 | Evidence 12: forbidden I/O | Probe has no provider/Secret dependency; fail-on-call fake mutation/Secret boundaries and fetch sentinel unused; no mutation/network path in B helpers | Runtime counters NOT VERIFIED |
 
 Deterministic promises coordinate races, without fixed sleeps/polling. The
@@ -336,9 +338,11 @@ observed. Existing Jevault `main.js` remains byte-for-byte identical to the
 repository production build. No note write, rename, move, delete, folder
 creation via Vault API, provider request or Secret access was initiated.
 
-Actual Start/Inspect results and cleanup are pending. Setup is not evidence of
-the required runtime outcomes. No real user Vault was inspected. The remaining
-steps are a handoff, not VERIFIED command evidence.
+Human-operated Start/Inspect on unchanged A subsequently produced the sanitized
+log recorded below. This establishes the limited helper observations in the
+matrix, not every required runtime outcome. Cleanup and remaining limitations
+are recorded below. No real user Vault was inspected. Unexecuted procedure
+steps remain a handoff, not VERIFIED command evidence.
 
 1. Build the separate helper into a temporary directory (not production main):
    `node_modules/.bin/esbuild tests/helpers/tag-freshness-runtime-plugin.ts --bundle --platform=browser --format=cjs --external:obsidian --outfile=/private/tmp/jevault-64-runtime/main.js`.
@@ -395,9 +399,10 @@ product repair or counter reset was used to bypass this STOP.
 These are Computer Use server errors; their root cause is not established and
 they are not evidence of an Obsidian API or plugin failure. The human confirmed
 returning to A; unchanged-A Start/Inspect and sanitized console fields were
-requested next. Until actual output is supplied, all runtime outcome rows above
-remain **NOT VERIFIED**. The temporary plugin remains enabled for that human
-verification; Close/unload/removal must still be confirmed afterward.
+requested next. At that checkpoint, all runtime outcome rows remained
+**NOT VERIFIED**. Later human-operated output is recorded below. The temporary
+plugin remained enabled at that checkpoint; later Close, disable and removal
+are recorded below.
 
 The human then explicitly authorized one retry while leaving mouse/keyboard
 untouched. Rebinding again confirmed A / SyntheticVault / Obsidian 1.13.7,
@@ -414,6 +419,135 @@ again confirmed A / SyntheticVault / Obsidian 1.13.7; `super+p` again returned
 `timeoutReached` (cumulative occurrence 5). That retry stopped immediately.
 The monitor change did not resolve this observation; root cause remains unknown.
 
+After current-HEAD Code Review completed, the human requested resuming runtime
+verification. Native palette-button input was tried instead of `super+p`.
+A coordinate click reported `noWindowsAvailable` (cumulative occurrence 2),
+but a subsequent read-only app rebind visibly showed the command palette with
+the three spike commands. Palette display is therefore observed; the input
+error alone cannot establish that no UI action occurred. Selecting Start then
+reported `timeoutReached` (cumulative occurrence 6). A read-only observation
+still showed the palette; no ready Notice or command result was verified.
+Automatic input stopped. The human was asked to select Start then Inspect on
+unchanged A and report the readiness/recording notices. Actual snapshot fields,
+required cases and Close/unload/removal remain pending.
+
+The human reported pressing the command and asked for slower continuation.
+Read-only observation showed the palette closed, but did not verify a ready
+Notice or session output. A single subsequent palette-button click returned
+`timeoutReached` again (cumulative occurrence 7); no chained input or fixed
+delay was used. Automatic input stopped again. The human was asked to run
+Inspect without editing A and provide only its sanitized console fields.
+Palette closure alone is not evidence that Start or Inspect succeeded.
+
+### Human-operated unchanged-A observation
+
+The human ran Inspect without editing A, opened Developer Tools, and expanded
+its logged object. Read-only Computer Use observed the named spike log and all
+fields on Obsidian 1.13.7. Automatic input remained stopped during this
+human-operated observation.
+
+| Sanitized field | Observed result |
+| --- | --- |
+| evaluationSnapshot | snapshot-match |
+| metadataSnapshot | freshness-unverified |
+| postSessionTargetChanged | 0 |
+| frontmatterHelpers | returned |
+| selectedFrontmatterPresent | [false, false, false] |
+| selectedCachedLiteralPresent | [true, true, false] |
+| selectedBodyLiteralPresent | [true, true, false] |
+| tagAbsenceProof | unverified |
+
+The boolean order is the helper's fixed aws / programming/aws / Japanese
+selection. The unchanged-A helper therefore reproduced matching read evidence
+without post-start target changed events while metadata remained unverified.
+Obsidian visibly rendered the fixture's two existing inline tags. This is
+limited positive literal/cache-position evidence, including the hierarchy;
+false results do not prove tag absence. A had no frontmatter, so this does not
+exercise actual scalar/list YAML parsing. Start uses locally captured opaque
+provenance, with no TypeSafe evaluation request; the full production suggestion
+and Apply flow, atomic freshness and duplicate-free writes remain NOT VERIFIED.
+The separate reads do not become one atomic snapshot because their booleans
+agree. No runtime forbidden-call counters were collected. Subsequent fixtures
+and cleanup are recorded below.
+
+The human then switched from A to B without restarting the session and ran
+Inspect. The B window was observed; bringing Developer Tools to the foreground
+showed a newly appended second spike log. After human expansion, all its fields
+matched the table above, including the two original-A positive tag pairs and
+zero target changed events. The unrelated B fixture visibly had a different
+synthetic tag. Together with the helper's exact-source read path, this supports
+the active-switch case: Inspect retained A rather than falling back to B. No
+target identifier or note body was logged. This does not verify rename, move,
+delete, replacement, unrelated-event timing or cancellation interleavings.
+
+The human next ran Start then Inspect on C. A third spike log was appended
+(four Console messages including the developer-console banner), distinguishing
+it from the two earlier A-session logs. Its expanded object showed
+snapshot-match / freshness-unverified / target changed 0 / helpers returned;
+all three selected-tag arrays were [false, false, false], with tagAbsenceProof
+still unverified. C's contents were not exported. These negative booleans do
+not certify tag absence or exercise known scalar/list frontmatter fixtures.
+
+The human-operated D session appended a fourth spike log with the same fields
+as C. The human reported existing tags in D/E but no Japanese-tag fixture.
+These selections are fixed; an unrelated existing tag is not expected to make
+one of the selected booleans true. This did not establish a prepared selected
+scalar/list frontmatter case or a conservative Markdown-context case.
+
+After another human monitor change and explicit request to resume automatic
+input, native clicks successfully ran Start on E and visibly produced the ready
+Notice. Inspect visibly produced the recording Notice. Opening Developer Tools
+and expanding the newly appended fifth spike object succeeded; E also returned
+the same sanitized fields as C. No fixed delay, parser/private API, counter
+reset or OS automation workaround was used. Click, key and object-expansion
+delivery recovered in this arrangement; the prior timeout count remains 7 and
+noWindowsAvailable count 2. DisplayLink/monitor configuration as root cause is
+unconfirmed. One later input was interrupted by a user window change; fresh
+observation and the visible application Preferences menu completed cleanup.
+
+After cleanup, the human explicitly requested another UI test. A command-palette
+keyboard attempt was interrupted by a window change. Rebinding confirmed E,
+then a single super+p attempt again timed out (cumulative timeout occurrence 8).
+Read-only observation showed no palette. Automatic input stopped again; no
+search text was sent to the note. The earlier native click/Start/Inspect/Console
+successes are real but do not establish stable keyboard delivery or a resolved
+DisplayLink root cause. Cleanup remains confirmed and this infrastructure
+failure does not invalidate the already observed helper output.
+
+The human then suggested fullscreen as a cause and explicitly requested one
+more retry after changing the window arrangement. Fresh binding showed the
+window controls; super+p visibly opened the palette, typing Jevault visibly
+filtered its commands, and Escape visibly closed it without executing a
+production command. This successful comparison supports a window/Space-related
+hypothesis, not a proven fullscreen or DisplayLink defect. Timeout history
+remains 8. The temporary spike commands were absent after disabled-file cleanup.
+
+### Cleanup and remaining runtime limits
+
+The native Close command was selected and returned to the E view. The temporary
+plugin's enable toggle was then turned off. Read-only inspection of the enabled
+plugin IDs confirmed spike disabled and production Jevault still enabled.
+Only generated main.js and manifest.json were present in the temporary plugin
+directory; both matched their generated copies before removal. Those two files
+and the now-empty directory were removed. The temporary plugin directory's
+absence was confirmed, and production Jevault main.js still matched the repo
+build byte-for-byte. Settings was closed back to the E view. No notes or normal
+plugin data/settings were removed.
+
+This verifies command invocation and disabled/removed-artifact cleanup, not
+physical listener/hash counters or pending-work cancellation timing. Repeated
+Start commands exercise the helper's retry entry point; no late-work scenario
+was induced. No prepared selected scalar/list frontmatter, code/escape/URL
+context or malformed-YAML fixture was identified; the human confirmed no
+Japanese-tag fixture in D/E. Those helper semantics remain NOT VERIFIED on
+Desktop. No new note was written to manufacture evidence.
+Edit/rename/move/delete/replacement and stale
+cache timing interleavings were not performed in this read-only run; deterministic
+unit fixtures remain their evidence. No read-only forbidden-call observer was
+available, so runtime I/O counters remain NOT VERIFIED. The Issue permits these
+unavailable runtime-only outcomes to be disclosed; they do not justify an unsafe
+production strategy or a prohibited mutation/real-provider test.
+
 ## Validation and Safety Gate
 
 - `npm ci --cache /private/tmp/jevault-64-npm-cache`: passed, unchanged lockfile,
@@ -426,8 +560,10 @@ The monitor change did not resolve this observation; root cause remains unknown.
   passed. The first full run stopped at one unused fake-read parameter lint
   error; a target-identity assertion fixed it. Full-verification repairs: 1.
 - Independent read-only review requested fixed fixture expectations instead of
-  mirroring the literal guard in one test table. Local-review repairs: 1;
-  explicit expected booleans now record the intended conservative outcomes.
+  mirroring the literal guard in one test table. A later report review corrected
+  an obsolete blanket NOT VERIFIED statement after actual helper execution.
+  Local-review repairs: 2; explicit expected booleans record conservative outcomes,
+  and observed Desktop results remain separated from outstanding limitations.
 - Separate esbuild of the optional runtime plugin: passed. This proves
   compilation only, not Desktop execution.
 - Production bundle contains no `CurrentBodyProbe`, `TagFreshnessRuntimeSpike`
@@ -444,5 +580,6 @@ and async disposal limits are disclosed. Synthetic fixtures contain no real
 Secret. npm registry/GitHub/documentation access used to prepare this
 investigation is separate from the zero-network spike execution contract.
 No `spike:typesafe`, real API key or real user Vault was used by validation.
-Desktop timing/helpers and pending runtime cases remain NOT VERIFIED; a safe
-production strategy must not be inferred from green validation.
+Remaining Desktop timing/helper semantics and pending runtime cases remain
+NOT VERIFIED; limited observed helper results above and green validation do
+not establish a safe production strategy.
