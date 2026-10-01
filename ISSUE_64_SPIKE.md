@@ -20,6 +20,12 @@
   further source/lifecycle, serialization and Desktop evidence; it is not
   ruled out by the general parser gap.
 
+**Content-bound metadata freshness and semantic Tag identity are separate
+claims.** Even a matching changed-event proof does not establish case-equivalent
+duplicate prevention in the current mutation core; see B1 and the follow-up
+concern below. This does not change the A/B classifications or restricted-subset
+evaluation.
+
 This is a bounded investigation result, not a claim that no future public API
 could solve the problem. No production behavior, authorization, Apply wiring,
 dependency, version, release, or user Vault has been changed. Human-assisted
@@ -139,6 +145,25 @@ add the missing binding. PR #63 records an earlier real runtime observation
 of successful suggestions with zero post-session changed events and unavailable
 preparation. That is historical evidence, not this spike's reproduced runtime.
 
+Independently, current [TagApplyService](src/tags/tag-apply-service.ts) computes
+`selected.filter((name) => !tags.existingTags.includes(name))` after its
+freshness/proof and tag-state checks. This is exact string membership.
+[Official tag help](https://help.obsidian.md/tags) documents case-insensitive
+Tag identity: existing `#AWS` and selected `#aws` are semantically equivalent
+but distinct exact strings. If `#aws` is an allowed selection and verified
+metadata contains only `#AWS`, this filter may include `#aws` for frontmatter
+addition even when content-bound metadata freshness is proven. This is an
+independent duplicate-prevention gap in the current v0.4 Manual Tag Apply
+mutation core, not only B4's literal-guard false negative or stale-cache risk.
+
+[TagApplyAuthorization](src/tags/tag-apply-authorization.ts) retains exact names
+and compares tag sets with exact membership; [TagDiscoveryService](src/tags/tag-discovery-service.ts)
+also deduplicates exact strings. Existing [Tag Apply tests](tests/tag-apply.test.ts)
+check exact duplicate filtering and reject changed exact tag sets; those checks
+do not establish semantic identity for unchanged case variants. This finding
+comes from code inspection and the documented contract, not a Desktop mutation
+experiment. The production UI remains read-only.
+
 ### B2: frontmatter from the read string
 
 `getFrontMatterInfo(body) → parseYaml(info.frontmatter) → parseFrontMatterTags`
@@ -252,10 +277,12 @@ correctly identified this missing conceptual evaluation.
 “Snapshot” below never means that subsequent mutation is authorized. FN/FP are
 relative to the claim made, not a claim about measured Desktop parser coverage.
 All considered reads/hashes are explicit-operation, exact-target only.
+Content freshness in a paired snapshot does not imply semantic Tag identity;
+B's duplicate-prevention claim also needs case-equivalent comparison.
 
 | Strategy | Public API only? | Proves A? | Proves B positive? | Proves B absence? | False-negative risk | False-positive risk | Race window | Background processing | Requires mutation? | Privacy impact | Production recommendation |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Current changed-event proof | Yes | Event/evaluation snapshot plus existing guards; not an independent transaction lock | Paired indexed tags for matching content | Paired indexed snapshot only; unavailable without event | Stale/out-of-lifetime reuse must be rejected | No new heuristic | Event/hash/stat observation → mutation | Only active target session | No | Existing memory-only target hash | Keep current fail-closed; no replay fallback |
+| Current changed-event proof | Yes | Event/evaluation snapshot plus existing guards; not an independent transaction lock | Content-bound indexed names; semantic Tag identity not proven by exact membership | Paired indexed snapshot only; no case-equivalent absence proof from exact membership; unavailable without event | Stale/out-of-lifetime reuse must be rejected; case-equivalent tags can pass current exact duplicate filter | No new heuristic | Event/hash/stat observation → mutation | Only active target session | No | Existing memory-only target hash | Keep current fail-closed; no replay fallback; semantic duplicate prevention needs separate follow-up before UI wiring |
 | Current-body fingerprint via Vault.read | Yes | Read snapshot only | No | No | Changes after captured read or delayed notifications | Conservative rejection on revision changes | Read → hash → transaction | Operation-only | No | Additional local target read/hash, ephemeral | Research only; incomplete A |
 | getFileCache/getCache alone | Yes | No | Cache claims only | No | New tags absent from stale cache | Removed/context-changed stale tags | Index lag plus later edits | None added | No | Metadata only | Reject as initial authorization proof |
 | Frontmatter helpers | Yes | No | Supplied-string frontmatter only; runtime semantics pending | Frontmatter snapshot only; never inline | Unverified/malformed input must reject | No new body heuristic | Read snapshot → mutation | Operation-only | No | Local target string/YAML only | Partial evidence; insufficient B |
@@ -265,6 +292,16 @@ All considered reads/hashes are explicit-operation, exact-target only.
 | Public API gap / keep fail-closed | Existing API only; proposed contracts absent | Does not issue new proof | No new claim | No new claim | No unsafe addition because unavailable authorization blocks it | Legitimate operations blocked | No new mutation window | None added | No | No added production data flow | Recommended #64 outcome |
 
 ## General-note API gap and possible restricted follow-up
+
+**Separate v0.4 follow-up candidate:** define and verify canonical / semantic
+Tag identity for duplicate prevention before connecting Manual Tag Apply UI.
+This applies even when content-bound metadata freshness is proven; fixing the
+initial freshness gap alone does not fix current exact-string filtering.
+Confirm the supported Obsidian semantic equality contract, including unresolved
+case/Unicode behavior, before choosing an implementation. This spike does not
+prescribe `.toLowerCase()` alone, guessed Unicode normalization, locale-dependent
+comparison, a custom Tag parser or undocumented behavior. No new GitHub Issue
+or production implementation is authorized or created here.
 
 One of these **hypothetical contracts**, with documented error and lifetime
 semantics, could address B; these are not existing Obsidian API names:
