@@ -6,13 +6,19 @@
   mutation. `Vault.read()` plus the existing opaque fingerprint can compare the
   evaluated string with a newly read disk snapshot. That narrower comparison is
   possible using public API; it is not a lock or a proof about later content.
-- **B — Duplicate prevention: UNSAFE / INCOMPLETE.** Frontmatter helpers bind
+- **B — Duplicate prevention: UNSAFE / INCOMPLETE** for general notes. Frontmatter helpers bind
   their output to the supplied string, but do not parse inline tags. Cache
   positions can corroborate literals, not prove the absence of current tags.
   Exact literal detection has a documented case-insensitivity false negative;
   no complete Unicode/case/parser contract was established for a broader guard.
+  A useful restricted absence proof exists for a supplied string with no
+  frontmatter and no `#` anywhere; see B4's conservative subset below.
 - **Overall: NO SAFE PUBLIC-API STRATEGY FOUND** for unchanged pre-indexed notes
-  under the approved constraints. Keep the existing fail-closed preparation.
+  within the existing `processFrontMatter` mutation requirement. Keep the
+  existing fail-closed preparation. A restricted `Vault.process` design is a
+  public-API candidate requiring a separate mutation-boundary decision and
+  further source/lifecycle, serialization and Desktop evidence; it is not
+  ruled out by the general parser gap.
 
 This is a bounded investigation result, not a claim that no future public API
 could solve the problem. No production behavior, authorization, Apply wiring,
@@ -73,7 +79,8 @@ freshness, metadata, or parsing boundaries. No dependency upgrade is proposed.
 | [TagCache](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/TagCache.md), [CacheItem](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/CacheItem.md), [Loc](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/Loc.md) | Tag string and position; offsets locate characters in the indexed document, not a revision identity. No guarantee that unchanged offsets imply unchanged Markdown context. |
 | [getFrontMatterInfo](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/getFrontMatterInfo.md), [parseYaml](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/parseYaml.md), [parseFrontMatterTags](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/parseFrontMatterTags.md) | Operate on supplied string/object; return frontmatter info, unconstrained YAML result, and optional tag list. No inline Markdown-to-tag parser contract. |
 | [processFrontMatter](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/FileManager/processFrontMatter.md) | Atomic frontmatter read/modify/save with synchronous object callback; propagates YAML/callback errors. Callback receives neither full current body nor a metadata/content token. Atomic frontmatter does not bind a prior external body read. Never invoked here. |
-| [Vault.process](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/Vault/process.md) | Atomic whole-note synchronous transformation. Could compare the callback's whole string under a different approved design, but supplies no inline parser and requires a different mutation/serialization boundary. Not used, including as a no-op reindex probe. |
+| [Vault.process](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/Vault/process.md) | Atomic whole-note synchronous transformation. The [Vault guide](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Plugins/Vault.md) explicitly recommends comparing callback content with a retained read after async work. This addresses the content race in a different design; the restricted no-frontmatter/no-hash subset needs no inline parser. Requires a different mutation/serialization boundary. Never invoked here, including as a no-op probe. |
+| [stringifyYaml](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/stringifyYaml.md) | Public object-to-YAML string helper available for a proposed new frontmatter block. Signature alone is not evidence of correct delimiter assembly, preservation or Desktop tag round-trip. No new frontmatter is generated or written by this spike. |
 
 `getAllTags` consumes cached metadata. Other public parse helpers concern
 frontmatter, links or property identifiers. Markdown rendering APIs return
@@ -179,6 +186,64 @@ cost UX but can safely suppress an addition; false negatives cannot be accepted.
 Always skipping everything is vacuously safe but cannot establish the requested
 usable Apply strategy or an absence proof.
 
+#### Useful conservative subset: no frontmatter and no hash marker
+
+The literal-specific failure above does **not** rule out a coarser guard.
+Reject every string containing any ASCII `#`, and every string for which public
+`getFrontMatterInfo` reports frontmatter. Missing/unexpected helper output or
+errors must also reject. Under the documented inline syntax (an ASCII `#`
+followed by a keyword) and frontmatter `tags` property, an accepted string has
+neither inline nor frontmatter tags. This is a supplied-string **absence**
+argument for any selected tag, not a parser or a positive-tag detector.
+It avoids case, hierarchy and Unicode comparison because no inline marker is
+present, and rejects scalar/list frontmatter equally. A plain untagged note
+without headings or hashes is accepted, so this is not “skip everything”.
+
+False positives are deliberately broad: any heading marker, URL fragment,
+escaped hash, code block/inline-code hash, ordinary hash or any frontmatter
+(even unrelated properties) rejects the note. No context is parsed or excluded.
+This trades significant UX coverage for absence safety; a different Unicode
+symbol resembling `#` is not the documented ASCII tag marker. Real Desktop
+helper behavior for malformed delimiters/BOM/line endings remains NOT VERIFIED
+and must be tested conservatively before production; uncertain input rejects.
+
+This guard alone still cannot bind a separate `Vault.read` snapshot to the
+existing `processFrontMatter` callback. A **different proposed design** would:
+
+1. Explicitly read only the captured original source; validate identity and
+   operation lifetime around awaits; compare its fingerprint to evaluation.
+   Retain that matching string only in the active operation, never persist/log
+   it. The restricted absence guard may reject before requesting an Apply.
+2. Only after separate approved user selection/confirmation, use
+   `Vault.process` on that exact source. Its synchronous callback must recheck
+   source identity/lifetime and require exact string equality with the retained
+   snapshot, then re-run the no-frontmatter/no-hash guard on callback data.
+   A mismatch or invalid operation must abort, never continue or fall back to
+   the active note. A delayed event/same-stat edit returning old read data is
+   caught by unequal callback data; equal current content meets content equality,
+   not a historical claim that no intermediate edit ever occurred.
+3. Construct only a new `tags` frontmatter list from the validated selected
+   existing tags using public YAML helpers, preserving the original body.
+   Reject empty/invalid selection or helper/serialization errors. Do not remove
+   tags/properties or invent tags; existing frontmatter already rejects.
+
+The public atomic-content contract closes the **content** read-to-write race
+for this proposal. It does not, by itself, establish exact path/object identity
+through an asynchronous save, unsaved editor reconciliation, cancellation after
+write starts, callback-error/no-write behavior, or generated YAML round-trip.
+Those contracts/runtime cases and disposal of the retained string still need
+evidence. There is no new persistent/background read/hash requirement.
+
+Classification: **NEEDS MORE API EVIDENCE / separate approval**, rather than
+rejected for parser coverage. Conceptually A's full-content equality and B's
+restricted absence can coexist at the proposed transaction; this is not a
+verified production-safe strategy or reusable authorization. No `Vault.process`
+call, serialization prototype or note mutation was performed. The approved
+product requirement uses `processFrontMatter` for actual mutation, so this
+spike cannot substitute `Vault.process` or enable Apply. Codex's P2 finding
+[4158712489](https://github.com/taichocop/jevault/pull/65#discussion_r4158712489)
+correctly identified this missing conceptual evaluation.
+
 ## Strategy matrix
 
 “Snapshot” below never means that subsequent mutation is authorized. FN/FP are
@@ -193,9 +258,10 @@ All considered reads/hashes are explicit-operation, exact-target only.
 | Frontmatter helpers | Yes | No | Supplied-string frontmatter only; runtime semantics pending | Frontmatter snapshot only; never inline | Unverified/malformed input must reject | No new body heuristic | Read snapshot → mutation | Operation-only | No | Local target string/YAML only | Partial evidence; insufficient B |
 | TagCache position validation | Yes | No | Current literal only, not grammar/context | No | Cache misses and newly inserted tags | Context moved to code/escape | Captured body → mutation | Operation-only | No | Local target string/metadata | Positive conservative skip only |
 | Conservative literal/body guard | Yes, string operation | No | Literal only | No proven full coverage | Exact search demonstrably misses case variants; broader coverage unproven | Code/escape/URL/prefix/ordinary text | Captured body → mutation | Operation-only | No | Local target string only | Reject production fallback; no custom parser |
+| No-frontmatter/no-hash guard + proposed Vault.process | Yes, existing public helpers/atomic content API | Callback current string must equal evaluation-matching retained string; identity/lifecycle/save evidence pending | No; rejects every possible tagged note | Supplied-string restricted absence; recheck inside proposed callback | No marker/frontmatter-based miss within accepted subset under public syntax; uncertain helper/identity/save cases must reject | All hashes/headings/URL/code/escapes and any frontmatter reject | Separate-read race addressed by atomic callback comparison; identity/editor/cancel-save limits pending | Explicit operation only | Proposed production design yes; spike performs none | Retained original-target string in operation memory; clear on disposal, no logging/persistence | Evaluate in a separately approved boundary investigation; not a #64 production change |
 | Public API gap / keep fail-closed | Existing API only; proposed contracts absent | Does not issue new proof | No new claim | No new claim | No unsafe addition because unavailable authorization blocks it | Legitimate operations blocked | No new mutation window | None added | No | No added production data flow | Recommended #64 outcome |
 
-## Required public API gap
+## General-note API gap and possible restricted follow-up
 
 One of these **hypothetical contracts**, with documented error and lifetime
 semantics, could address B; these are not existing Obsidian API names:
@@ -212,8 +278,20 @@ source/content token, or a documented full-content validation callback within
 the atomic frontmatter transaction. Tokens must become invalid on content or
 identity changes; missing/invalid metadata must never be interpreted as empty.
 Keep source identity/path checks, selection subset, operation lifetime,
-pre-start cancellation and disposal. No dependency or production follow-up
-implementation Issue is justified until these gaps are resolved.
+pre-start cancellation and disposal. These gaps apply to general-note coverage
+and the current `processFrontMatter` boundary, not to every conceivable
+conservative subset. A new parser dependency is not justified by this spike.
+
+A minimum separately approved follow-up could investigate whether the
+no-frontmatter/no-hash subset may replace the mutation boundary with
+`Vault.process`. It should first settle the product boundary decision, exact
+source/save and abort contracts, operation-memory disposal, editor behavior,
+body preservation and public YAML round-trip with disposable fixtures. Only
+then consider adapting authorization/Apply validation for that subset while
+all other notes remain fail-closed. Existing selection, explicit confirmation,
+read-only suggestion/provider boundaries and no-background/no-telemetry rules
+remain required. This is a proposed follow-up scope, not authorization to create
+an Issue, implement it, mutate a note or claim production safety.
 
 The unchanged pre-indexed UX limitation remains: suggestions can succeed while
 preparation is `freshness-unverified` because no matching changed pair arrived.
@@ -248,12 +326,19 @@ does not evaluate with TypeSafe or access SecretStorage. Its successive read
 results are independent snapshots; the console output does not assert that all
 fields refer to one atomically current body. It never claims tag absence.
 
-## Human-only isolated runtime procedure (NOT EXECUTED)
+## Isolated runtime setup and remaining human procedure
 
 Do not open a real user Vault for this spike. Use a disposable Synthetic Vault
-with synthetic fixtures prepared before testing. This agent has not opened or
-modified any Vault, installed the spike, or run a real Desktop command. These
-steps are a handoff, not VERIFIED evidence.
+with synthetic fixtures prepared before testing. After the human supplied its
+location, native UI confirmed **SyntheticVault / Obsidian 1.13.7**. Steps 1–2
+were completed: the separate plugin was installed and its enable toggle was
+observed. Existing Jevault `main.js` remains byte-for-byte identical to the
+repository production build. No note write, rename, move, delete, folder
+creation via Vault API, provider request or Secret access was initiated.
+
+Actual Start/Inspect results and cleanup are pending. Setup is not evidence of
+the required runtime outcomes. No real user Vault was inspected. The remaining
+steps are a handoff, not VERIFIED command evidence.
 
 1. Build the separate helper into a temporary directory (not production main):
    `node_modules/.bin/esbuild tests/helpers/tag-freshness-runtime-plugin.ts --bundle --platform=browser --format=cjs --external:obsidian --outfile=/private/tmp/jevault-64-runtime/main.js`.
@@ -295,6 +380,39 @@ steps are a handoff, not VERIFIED evidence.
    actual runtime counts only if a read-only observer is available. No absence
    of visible error or console message establishes zero calls. Remove/disable
    the temporary plugin after use. Never log body or digest to capture evidence.
+
+### Computer Use STOP and human continuation
+
+Native UI initially showed the correct Synthetic Vault. Settings refresh and
+the separate plugin's enable toggle succeeded. Native input then returned
+`timeoutReached` three times: settings close, app rebind, and command-palette
+key input after the human returned to A. Automatic UI operations stopped at
+the same-failure limit in [STOP_CONDITIONS](agent/STOP_CONDITIONS.md). An earlier
+`noWindowsAvailable` and an invalid-element error are also preserved as
+infrastructure observations. No alternate OS automation, private Obsidian API,
+product repair or counter reset was used to bypass this STOP.
+
+These are Computer Use server errors; their root cause is not established and
+they are not evidence of an Obsidian API or plugin failure. The human confirmed
+returning to A; unchanged-A Start/Inspect and sanitized console fields were
+requested next. Until actual output is supplied, all runtime outcome rows above
+remain **NOT VERIFIED**. The temporary plugin remains enabled for that human
+verification; Close/unload/removal must still be confirmed afterward.
+
+The human then explicitly authorized one retry while leaving mouse/keyboard
+untouched. Rebinding again confirmed A / SyntheticVault / Obsidian 1.13.7,
+but `super+p` returned the same `timeoutReached` (cumulative occurrence 4).
+The authorized retry ended there; failure history was not reset. Concurrent
+human input alone therefore does not explain the observed failure. Native
+key delivery remains blocked, and no runtime command outcome was obtained.
+
+During the subsequent permission investigation, native System Settings showed
+Codex Computer Use's Accessibility and Screen/System Audio Recording switches
+already on. No permission was added or broadened. After the human moved the
+display to another monitor and explicitly requested another retry, rebinding
+again confirmed A / SyntheticVault / Obsidian 1.13.7; `super+p` again returned
+`timeoutReached` (cumulative occurrence 5). That retry stopped immediately.
+The monitor change did not resolve this observation; root cause remains unknown.
 
 ## Validation and Safety Gate
 
