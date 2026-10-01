@@ -149,6 +149,7 @@ function createIntegratedCommand() {
     modal.open();
   });
   const command = new TagSuggestionCommand({
+    startPreparation: () => ({ state: { status: "unavailable", reason: "freshness-unverified" }, prepare: () => undefined, dispose: () => undefined }),
     existingTags: { snapshot: () => ({ status: "available", names: [] }) },
     tagSuggestionService: { suggestForActiveNote },
     getActiveNotePath: () => "Fixtures/Synthetic.md",
@@ -185,6 +186,7 @@ describe("TagSuggestionCommand and ClassificationErrorModal lifecycle", () => {
       successfulClassification,
       { status: "available", names: [] },
       expect.any(AbortSignal),
+      expect.objectContaining({ dispose: expect.any(Function) }),
     );
     expect(hide).toHaveBeenCalledTimes(2);
     expect((modal.contentEl as unknown as FakeElement).children).toEqual([]);

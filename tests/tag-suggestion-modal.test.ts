@@ -84,6 +84,19 @@ describe("TagSuggestionModal", () => {
     content.children.at(-1)!.click();
     expect(content.children).toEqual([]);
   });
+  it.each(["button", "onClose", "unload"])("disposes transferred preparation exactly once on %s and cannot reopen it", (action) => {
+    const owner = new AbortController();
+    const dispose = vi.fn();
+    const modal = new TagSuggestionModal({} as App, outcome, { status: "available", names: [] }, owner.signal,
+      { applyPreparation: { status: "unavailable", reason: "freshness-unverified" }, dispose });
+    modal.open();
+    if (action === "button") (modal.contentEl as unknown as FakeElement).children.at(-1)!.click();
+    else if (action === "unload") owner.abort();
+    else modal.onClose();
+    modal.onClose(); modal.open();
+    expect(dispose).toHaveBeenCalledOnce();
+    expect((modal.contentEl as unknown as FakeElement).children).toEqual([]);
+  });
   it("does not re-sort service order", () => {
     const modal = new TagSuggestionModal({} as App, { ...outcome, suggestions: [...outcome.suggestions].reverse() }, { status: "available", names: [] }, new AbortController().signal);
     modal.open();

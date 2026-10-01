@@ -36,6 +36,7 @@ function createCommand(
   const showError = vi.fn();
   const snapshot = vi.fn(() => ({ status: "available" as const, names: ["#aws"] }));
   const command = new TagSuggestionCommand({
+    startPreparation: () => ({ state: { status: "unavailable", reason: "freshness-unverified" }, prepare: () => undefined, dispose: () => undefined }),
     existingTags: { snapshot },
     tagSuggestionService: { suggestForActiveNote },
     getActiveNotePath,
@@ -56,7 +57,7 @@ describe("TagSuggestionCommand", () => {
 
     expect(suggestForActiveNote).toHaveBeenCalledTimes(1);
     expect(suggestForActiveNote).toHaveBeenCalledWith(expect.any(AbortSignal));
-    expect(showSuggestions).toHaveBeenCalledWith(success, { status: "available", names: ["#aws"] }, expect.any(AbortSignal));
+    expect(showSuggestions).toHaveBeenCalledWith(success, { status: "available", names: ["#aws"] }, expect.any(AbortSignal), expect.objectContaining({ dispose: expect.any(Function) }));
     expect(snapshot).toHaveBeenCalledExactlyOnceWith(success.source);
     expect(hide).toHaveBeenCalledOnce();
   });
@@ -293,7 +294,7 @@ describe("TagSuggestionCommand cancellation", () => {
     const h = createCommand(async () => empty);
     await h.command.execute();
     expect(h.showError).not.toHaveBeenCalled();
-    expect(h.showSuggestions).toHaveBeenCalledWith(empty, { status: "available", names: ["#aws"] }, expect.any(AbortSignal));
+    expect(h.showSuggestions).toHaveBeenCalledWith(empty, { status: "available", names: ["#aws"] }, expect.any(AbortSignal), expect.objectContaining({ dispose: expect.any(Function) }));
   });
   it("suppresses UI when snapshot boundary disposes the command", async () => {
     const h = createCommand(async () => success);
