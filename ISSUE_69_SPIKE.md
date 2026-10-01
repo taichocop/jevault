@@ -412,6 +412,15 @@ the older command to survive Close/unload. Local-review repair 1 acquires
 ownership before the first await, rejects overlapping Run commands and checks
 the captured controller after awaits. Four fake-app regressions cover double
 Run + Close/unload, old completion after a new Run, and wrong-Vault refusal.
+Post-PR repair 1 addresses a valid Codex test-evidence finding: the original
+old-completion regression cancelled both Runs and shared one deferred read,
+so it did not exercise an old completion while its replacement remained live.
+The repaired test supplies two independent command reads, an authorized fake
+catalog and fixed public-helper responses. It resolves the old read while the
+new Run is still pending, verifies no catalog access/process from the stale
+completion, then resolves the new read and verifies exactly one successful
+transform. This positive control establishes that the fake can reach the writer;
+it does not add a claim about actual Desktop lifecycle semantics.
 Final verification/re-review and current-HEAD CI/Codex status are recorded in
 the PR/completion report; none can certify Desktop gates above.
 
