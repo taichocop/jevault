@@ -24,7 +24,8 @@ This is a bounded investigation result, not a claim that no future public API
 could solve the problem. No production behavior, authorization, Apply wiring,
 dependency, version, release, or user Vault has been changed. Human-assisted
 Desktop helper execution verified the limited unchanged-A, active-switch and
-C/D/E observations recorded below. Cleanup was confirmed after input recovered.
+C/D/E observations recorded below. A later agent-only Computer Use re-execution
+confirmed every observed helper result. Cleanup was confirmed after both runs.
 Remaining fixture semantics and interleavings are **NOT VERIFIED**.
 HUMAN MERGE READY must not be claimed from unit fakes, earlier PR observations, or review of the prior
 HEAD before these report updates are committed and reviewed.
@@ -521,6 +522,41 @@ filtered its commands, and Escape visibly closed it without executing a
 production command. This successful comparison supports a window/Space-related
 hypothesis, not a proven fullscreen or DisplayLink defect. Timeout history
 remains 8. The temporary spike commands were absent after disabled-file cleanup.
+
+### Agent-operated Computer Use re-execution
+
+The human requested repeating the manually executed observations using Computer
+Use. The same generated read-only helper was temporarily reinstalled and enabled
+through native Preferences; no production build was replaced. The agent selected
+and visibly confirmed A, invoked Start and observed its ready Notice, invoked
+Inspect and observed its recording Notice, opened Console and expanded the newly
+appended sixth spike log. All fields matched the unchanged-A table above.
+
+Without restarting, the agent switched to B, confirmed the B window, and invoked
+Inspect. The seventh spike log retained A's two positive literal/cache pairs,
+snapshot-match, freshness-unverified and target changed 0. Separate Start/Inspect
+runs on visibly confirmed C, D and E appended eighth, ninth and tenth spike logs;
+each matched the earlier C/D/E fields and negative fixed-selected-tag booleans.
+Ready and recording Notices were observed for every new session; all five new
+objects were expanded by the agent. Counts included the unchanged developer
+banner (7 through 11 total Console messages), separating rerun outputs from old
+logs. No manual command execution was used during this rerun.
+
+An initial AX row selection opened D instead of A; the agent observed that title
+and selected A from the screenshot before starting any session. One subsequent
+window-transition delivery was interrupted after Console closed; the displayed
+C window was re-observed and rebound before continuing. No new timeout occurred
+and prior failure history was preserved. These input observations are not
+Obsidian API failures. No new note contents, fingerprints or collections were
+logged, and no production suggestion or Apply command was invoked.
+
+The agent then invoked Close and disabled the helper through native Preferences.
+Enabled IDs again confirmed helper absent and normal Jevault present. Only the
+same byte-matching generated pair was removed, the temporary directory was
+confirmed absent and production main.js was byte-for-byte unchanged. Preferences
+was closed to E. This independently reproduced the earlier bounded observations
+and cleanup; it does not promote untested helper semantics or physical I/O/hash
+counts to verified evidence.
 
 ### Cleanup and remaining runtime limits
 
