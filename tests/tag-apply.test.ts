@@ -15,7 +15,7 @@ vi.mock("obsidian", async () => ({
 
 const names = ["#aws", "#cloud", "#programming/aws", "#AWS", "#日本語", "#é", "#e\u0301"];
 
-function harness(frontmatter: Record<string, unknown> = {}, existingTags: string[] = []) {
+function harness(frontmatter: Record<string, unknown> = {}, existingTags: string[] = [], allowedTags: readonly string[] = names) {
   const file = Object.assign(new FakeFile("Synthetic/A.md"), { stat: { ctime: 1, mtime: 2, size: 100 } }) as TFile;
   let currentTags = [...existingTags];
   let frontmatterTags: string[] = [];
@@ -47,7 +47,7 @@ function harness(frontmatter: Record<string, unknown> = {}, existingTags: string
   const source = new NoteSource(file);
   const capture = new TagApplyAuthorizationService(vault, metadata);
   const service = new TagApplyService(vault, metadata, fileManager);
-  const outcome = { source, evaluationProvenance: undefined as EvaluationProvenance | undefined, suggestions: names.map((tagName) => ({ tagName, tagId: "synthetic", choice: "match" as const, matchProbability: 1 })) };
+  const outcome = { source, evaluationProvenance: undefined as EvaluationProvenance | undefined, suggestions: allowedTags.map((tagName) => ({ tagName, tagId: "synthetic", choice: "match" as const, matchProbability: 1 })) };
   async function authorize(): Promise<TagApplyAuthorization> {
     outcome.evaluationProvenance = await captureEvaluationProvenance(source, "Synthetic evaluated content");
     const result = capture.capture(outcome);
@@ -133,10 +133,13 @@ describe("TagApplyService", () => {
     expect(h.fileManager.processFrontMatter).toHaveBeenCalledExactlyOnceWith(h.file, expect.any(Function));
     expect(h.forbidden).not.toHaveBeenCalled();
   });
-  it("applies several exact canonical names in one call with persistence-only hash stripping", async () => {
+  it("applies distinct semantic identities once, preserving first selected names with persistence-only hash stripping", async () => {
     const h = harness();
-    expect(await h.apply(await h.authorize(), [...names, "#aws"])).toEqual({ status: "applied", addedTags: names });
-    expect(h.frontmatter.tags).toEqual(["aws", "cloud", "programming/aws", "AWS", "日本語", "é", "e\u0301"]);
+    const expected = ["#aws", "#cloud", "#programming/aws", "#日本語", "#é", "#e\u0301"];
+    const authorization = await h.authorize();
+    expect(authorization.allowedTags).toEqual(names);
+    expect(await h.apply(authorization, [...names, "#aws"])).toEqual({ status: "applied", addedTags: expected });
+    expect(h.frontmatter.tags).toEqual(["aws", "cloud", "programming/aws", "日本語", "é", "e\u0301"]);
     expect(h.fileManager.processFrontMatter).toHaveBeenCalledTimes(1);
   });
   it.each(["#new", "aws", "#Aws"])("rejects undisplayed selection %s", async (name) => {
@@ -170,6 +173,47 @@ describe("TagApplyService", () => {
   it("does not append #aws when the note already contains #AWS", async () => {
     const h = harness({}, ["#AWS"]);
     expect(await h.apply(await h.authorize(), ["#aws"])).toEqual({ status: "no-change" });
+    expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
+    expect(h.frontmatter).toEqual({});
+  });
+  it("does not append both selected ASCII case variants in the same apply", async () => {
+    const h = harness();
+    expect(await h.apply(await h.authorize(), ["#aws", "#AWS"]))
+      .toEqual({ status: "applied", addedTags: ["#aws"] });
+    expect(h.frontmatter.tags).toEqual(["aws"]);
+    expect(h.fileManager.processFrontMatter).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    { selected: ["#AWS", "#aws"], expected: ["#AWS"] },
+    { selected: ["#Programming/AWS", "#programming/aws"], expected: ["#Programming/AWS"] },
+    { selected: ["#programming/aws", "#Programming/AWS"], expected: ["#programming/aws"] },
+  ])("keeps first selected representation for equivalent additions: $selected", async ({ selected, expected }) => {
+    const h = harness({}, [], [...names, "#Programming/AWS"]);
+    expect(await h.apply(await h.authorize(), selected)).toEqual({ status: "applied", addedTags: expected });
+    expect(h.frontmatter.tags).toEqual(expected.map((name) => name.slice(1)));
+    expect(h.fileManager.processFrontMatter).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    { selected: ["#aws", "#cloud", "#CLOUD", "#programming/aws"], expected: ["#cloud", "#programming/aws"] },
+    { selected: ["#programming/aws", "#CLOUD", "#cloud", "#aws"], expected: ["#programming/aws", "#CLOUD"] },
+  ])("filters existing and planned duplicates while retaining addition order: $selected", async ({ selected, expected }) => {
+    const h = harness({ tags: ["AWS"], aliases: ["keep"] }, ["#AWS"], [...names, "#CLOUD"]);
+    h.fmTags(["#AWS"]);
+    expect(await h.apply(await h.authorize(), selected)).toEqual({ status: "applied", addedTags: expected });
+    expect(h.frontmatter).toEqual({ tags: ["AWS", ...expected.map((name) => name.slice(1))], aliases: ["keep"] });
+    expect(h.fileManager.processFrontMatter).toHaveBeenCalledTimes(1);
+  });
+  it("retains distinct selected identities and parent/child tags", async () => {
+    const selected = ["#aws", "#aws2", "#cloud", "#programming", "#programming/aws"];
+    const h = harness({}, [], [...names, "#aws2", "#programming"]);
+    expect(await h.apply(await h.authorize(), selected)).toEqual({ status: "applied", addedTags: selected });
+    expect(h.frontmatter.tags).toEqual(["aws", "aws2", "cloud", "programming", "programming/aws"]);
+    expect(h.fileManager.processFrontMatter).toHaveBeenCalledTimes(1);
+  });
+  it.each([["#aws", "#AWS"], ["#AWS", "#aws"]])("rejects any unauthorized selected variant before deduplication: %s / %s", async (first, second) => {
+    const h = harness({}, [], ["#aws"]);
+    expect(await h.apply(await h.authorize(), [first, second]))
+      .toEqual({ status: "failure", reason: "invalid-selection" });
     expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
     expect(h.frontmatter).toEqual({});
   });

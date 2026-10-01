@@ -72,8 +72,14 @@ export class TagApplyService {
         return { status: "failure", reason: "tag-state-changed" };
       }
       if (tags.proof !== authorization.metadataProof) return { status: "failure", reason: "metadata-stale" };
-      const additions = selected.filter((name) =>
-        !tags.existingTags.some((existing) => isSameTagIdentity(existing, name)));
+      const additions: string[] = [];
+      for (const name of selected) {
+        // 認可は先に完全一致で検証済み。同一Applyでも最初に採用した表記だけを保持する。
+        if (!tags.existingTags.some((existing) => isSameTagIdentity(existing, name)) &&
+          !additions.some((addition) => isSameTagIdentity(addition, name))) {
+          additions.push(name);
+        }
+      }
       if (signal.aborted) return { status: "cancelled" };
       if (additions.length === 0) return { status: "no-change" };
 
