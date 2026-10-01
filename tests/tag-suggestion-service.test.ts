@@ -16,6 +16,9 @@ import type { TagEvaluation } from "../src/tags/tag-evaluation";
 import type { TagEvaluator } from "../src/tags/tag-evaluator";
 import { TagSuggestionService } from "../src/tags/tag-suggestion-service";
 import { fixtureSource } from "./helpers/note-source";
+import { NoteSource } from "../src/note-source";
+import type { TFile } from "obsidian";
+import { evaluationContext, fingerprintContent, sameContent } from "../src/tags/evaluation-provenance";
 
 const readyNote = {
   status: "ready" as const,
@@ -54,6 +57,23 @@ function expectNoEvaluation(h: ReturnType<typeof harness>) {
 }
 
 describe("TagSuggestionService", () => {
+  it("binds opaque provenance to the exact body evaluated without exposing it", async () => {
+    const source = new NoteSource({ path: "Synthetic.md", stat: { mtime: 2, size: 100 } } as TFile);
+    const note = { title: "Synthetic", path: source.path, body: "Synthetic original body" };
+    const h = harness({ noteState: { status: "ready", source, note } });
+    h.factory.mockImplementation(() => {
+      note.body = "Synthetic changed body";
+      return { evaluate: h.evaluate };
+    });
+    const result = await h.service.suggestForActiveNote();
+    const proof = evaluationContext(result.evaluationProvenance, source);
+    expect(proof).toBeDefined();
+    expect(sameContent(proof!.content, (await fingerprintContent(h.evaluate.mock.calls[0][0].body))!)).toBe(true);
+    expect(h.evaluate.mock.calls[0][0].body).toBe("Synthetic original body");
+    expect(Object.isFrozen(h.evaluate.mock.calls[0][0])).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("Synthetic original body");
+    expect(JSON.stringify(result.evaluationProvenance)).toBe("{}");
+  });
   it("orchestrates one bundled evaluation, filters only match and exposes only the safe result", async () => {
     const h = harness();
     const signal = new AbortController().signal;
@@ -66,7 +86,7 @@ describe("TagSuggestionService", () => {
     expect(h.getApiKey).toHaveBeenCalledExactlyOnceWith("synthetic-secret-reference");
     expect(h.factory).toHaveBeenCalledExactlyOnceWith("unit-test-only");
     expect(h.evaluate).toHaveBeenCalledExactlyOnceWith(readyNote.note, candidates, signal);
-    expect(h.evaluate.mock.calls[0][0]).toBe(readyNote.note);
+    expect(Object.isFrozen(h.evaluate.mock.calls[0][0])).toBe(true);
     expect(h.evaluate.mock.calls[0][1]).toBe(candidates);
     expect(JSON.stringify(result)).not.toContain(readyNote.note.body);
     expect(JSON.stringify(result)).not.toContain("unit-test-only");

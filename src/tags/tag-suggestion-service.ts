@@ -12,6 +12,7 @@ import type { JevaultSettings } from "../settings";
 import type { TagDiscoveryService } from "./tag-discovery-service";
 import type { TagEvaluation } from "./tag-evaluation";
 import type { TagEvaluator } from "./tag-evaluator";
+import { captureEvaluationProvenance, type EvaluationProvenance } from "./evaluation-provenance";
 
 export type TagEvaluatorFactory = (apiKey: string) => TagEvaluator;
 
@@ -20,6 +21,7 @@ export interface TagSuggestionServiceResult {
   readonly noteTitle: string;
   readonly source: NoteSource;
   readonly suggestions: readonly Readonly<TagEvaluation>[];
+  readonly evaluationProvenance?: EvaluationProvenance;
 }
 
 type NoteStateProvider = Pick<NoteService, "getActiveNoteState">;
@@ -42,6 +44,11 @@ export class TagSuggestionService {
     if (noteState.status === "no-active-file") throw new NoActiveNoteError();
     if (noteState.status === "unsupported-file") throw new UnsupportedFileError();
 
+    // fingerprint待機中も評価本文を差し替えられないよう、実際にproviderへ渡す入力を固定する。
+    const evaluatedNote = Object.freeze({ ...noteState.note });
+    const evaluationProvenance = await captureEvaluationProvenance(noteState.source, evaluatedNote.body);
+    throwIfCancelled(signal);
+
     const candidates = this.tagDiscovery.discover();
     throwIfCancelled(signal);
     // 評価対象なしと評価後の提案なしを区別し、不要なSecretアクセスを避ける。
@@ -58,7 +65,7 @@ export class TagSuggestionService {
     throwIfCancelled(signal);
     const evaluator = this.evaluatorFactory(apiKey);
     throwIfCancelled(signal);
-    const result = await evaluator.evaluate(noteState.note, candidates, signal);
+    const result = await evaluator.evaluate(evaluatedNote, candidates, signal);
     throwIfCancelled(signal);
 
     const suggestions = result.evaluations
@@ -73,6 +80,7 @@ export class TagSuggestionService {
       noteTitle: noteState.note.title,
       source: noteState.source,
       suggestions,
+      ...(evaluationProvenance === undefined ? {} : { evaluationProvenance }),
     };
   }
 }
