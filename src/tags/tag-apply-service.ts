@@ -1,7 +1,7 @@
 import { parseFrontMatterTags, type FileManager, type TFile } from "obsidian";
 
 import {
-  isIssuedAuthorization, readTagApplyMetadata, resolveTagApplySource, sameTags,
+  isIssuedAuthorization, resolveTagApplySource, sameTags,
   type TagApplyAuthorization, type TagApplyFailureReason, type TagApplyMetadata, type TagApplyVault,
 } from "./tag-apply-authorization";
 
@@ -63,13 +63,14 @@ export class TagApplyService {
       const revisionValid = revisionMatches();
       if (signal.aborted) return { status: "cancelled" };
       if (!revisionValid) return { status: "failure", reason: "revision-changed" };
-      const tags = readTagApplyMetadata(this.metadata, file);
+      const tags = this.metadata.snapshot(authorization.source, authorization.evaluationProvenance);
       if (signal.aborted) return { status: "cancelled" };
-      if (tags === null) return { status: "failure", reason: "metadata-unavailable" };
+      if (tags.status === "failure") return tags;
       if (!sameTags(authorization.existingTags, tags.existingTags) ||
         !sameTags(authorization.frontmatterTags, tags.frontmatterTags)) {
         return { status: "failure", reason: "tag-state-changed" };
       }
+      if (tags.proof !== authorization.metadataProof) return { status: "failure", reason: "metadata-stale" };
       const additions = selected.filter((name) => !tags.existingTags.includes(name));
       if (signal.aborted) return { status: "cancelled" };
       if (additions.length === 0) return { status: "no-change" };
@@ -88,10 +89,11 @@ export class TagApplyService {
           callbackFailure = "tag-state-changed";
         }
         if (!callbackFailure) {
-          const latest = readTagApplyMetadata(this.metadata, file);
-          if (latest === null) callbackFailure = "metadata-unavailable";
+          const latest = this.metadata.snapshot(authorization.source, authorization.evaluationProvenance);
+          if (latest.status === "failure") callbackFailure = latest.reason;
           else if (!sameTags(authorization.existingTags, latest.existingTags) ||
             !sameTags(authorization.frontmatterTags, latest.frontmatterTags)) callbackFailure = "tag-state-changed";
+          else if (latest.proof !== authorization.metadataProof) callbackFailure = "metadata-stale";
         }
         if (callbackFailure) throw new Error("Tag apply validation failed");
         const existing = frontmatter.tags;

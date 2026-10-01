@@ -1,6 +1,8 @@
 import { getAllTags, parseFrontMatterTags, type CachedMetadata, type TFile } from "obsidian";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { captureEvaluationProvenance, type EvaluationProvenance } from "../src/tags/evaluation-provenance";
+import type { VerifiedTagMetadata } from "../src/tags/indexed-tag-metadata";
 import { NoteSource } from "../src/note-source";
 import { TagApplyAuthorizationService, type TagApplyAuthorization } from "../src/tags/tag-apply-authorization";
 import { TagApplyService } from "../src/tags/tag-apply-service";
@@ -25,7 +27,14 @@ function harness(frontmatter: Record<string, unknown> = {}, existingTags: string
     create: forbidden, createFolder: forbidden, delete: forbidden, rename: forbidden,
   };
   const cache: CachedMetadata = { frontmatter: {} };
-  const metadata = { getFileCache: vi.fn((): CachedMetadata | null => cache) };
+  const proof = Object.freeze({});
+  const metadata = {
+    getFileCache: vi.fn((): CachedMetadata | null => cache),
+    snapshot: vi.fn((): VerifiedTagMetadata => {
+      if (metadata.getFileCache() === null) return { status: "failure", reason: "metadata-unavailable" };
+      return { status: "verified", proof, existingTags: [...currentTags], frontmatterTags: [...frontmatterTags] };
+    }),
+  };
   vi.mocked(getAllTags).mockReset().mockImplementation(() => [...currentTags]);
   // 公式runtimeはunit testにないため、helper出力を明示する。自作YAML/tag parserで代替しない。
   vi.mocked(parseFrontMatterTags).mockReset().mockImplementation((value: unknown) =>
@@ -38,8 +47,9 @@ function harness(frontmatter: Record<string, unknown> = {}, existingTags: string
   const source = new NoteSource(file);
   const capture = new TagApplyAuthorizationService(vault, metadata);
   const service = new TagApplyService(vault, metadata, fileManager);
-  const outcome = { source, suggestions: names.map((tagName) => ({ tagName, tagId: "synthetic", choice: "match" as const, matchProbability: 1 })) };
-  function authorize(): TagApplyAuthorization {
+  const outcome = { source, evaluationProvenance: undefined as EvaluationProvenance | undefined, suggestions: names.map((tagName) => ({ tagName, tagId: "synthetic", choice: "match" as const, matchProbability: 1 })) };
+  async function authorize(): Promise<TagApplyAuthorization> {
+    outcome.evaluationProvenance = await captureEvaluationProvenance(source, "Synthetic evaluated content");
     const result = capture.capture(outcome);
     expect(result.status).toBe("captured");
     if (result.status !== "captured") throw new Error("Synthetic capture failed");
@@ -60,9 +70,18 @@ function harness(frontmatter: Record<string, unknown> = {}, existingTags: string
 afterEach(() => vi.unstubAllGlobals());
 
 describe("TagApply authorization capture", () => {
-  it("captures source, revision, tags and allowed names before later selection, with immutable copies", () => {
+  it("rejects updated stat paired with stale inline metadata after evaluation", async () => {
+    const h = harness({}, []);
+    h.outcome.evaluationProvenance = await captureEvaluationProvenance(h.source, "Synthetic evaluated content");
+    // OLDを評価後、本文へinline #awsが追加されたがcacheはOLDのまま。
+    h.file.stat.mtime++;
+    h.file.stat.size += 5;
+    expect(h.capture.capture(h.outcome).status).toBe("failure");
+    expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
+  });
+  it("captures source, revision, tags and allowed names before later selection, with immutable copies", async () => {
     const h = harness({}, ["#inline", "#AWS", "#aws"]);
-    const authorization = h.authorize();
+    const authorization = await h.authorize();
     expect(authorization.source).toBe(h.source);
     expect(authorization.revision).toEqual({ mtime: 2, size: 100 });
     expect(authorization.existingTags).toEqual(["#inline", "#AWS", "#aws"]);
@@ -78,15 +97,17 @@ describe("TagApply authorization capture", () => {
     expect(h.forbidden).not.toHaveBeenCalled();
     expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
   });
-  it("fails closed for unavailable metadata", () => {
+  it("fails closed for unavailable metadata", async () => {
     const h = harness();
+    h.outcome.evaluationProvenance = await captureEvaluationProvenance(h.source, "Synthetic evaluated content");
     h.metadata.getFileCache.mockReturnValue(null);
     expect(h.capture.capture(h.outcome)).toEqual({ status: "failure", reason: "metadata-unavailable" });
     expect(getAllTags).not.toHaveBeenCalled();
     expect(h.forbidden).not.toHaveBeenCalled();
   });
-  it.each(["source", "revision"])("rejects %s changing during capture", (change) => {
+  it.each(["source", "revision"])("rejects %s changing during capture", async (change) => {
     const h = harness();
+    h.outcome.evaluationProvenance = await captureEvaluationProvenance(h.source, "Synthetic evaluated content");
     h.metadata.getFileCache.mockImplementation(() => {
       if (change === "source") h.file.path = "Renamed.md";
       else h.file.stat.size++;
@@ -94,8 +115,9 @@ describe("TagApply authorization capture", () => {
     });
     expect(h.capture.capture(h.outcome)).toEqual({ status: "failure", reason: `${change}-changed` });
   });
-  it("sanitizes capture exceptions", () => {
+  it("sanitizes capture exceptions", async () => {
     const h = harness();
+    h.outcome.evaluationProvenance = await captureEvaluationProvenance(h.source, "Synthetic evaluated content");
     h.metadata.getFileCache.mockImplementation(() => { throw new Error("Private synthetic detail"); });
     expect(h.capture.capture(h.outcome)).toEqual({ status: "failure", reason: "unexpected" });
   });
@@ -105,7 +127,7 @@ describe("TagApplyService", () => {
   it("adds one tag once, preserving frontmatter fields and existing tags", async () => {
     const h = harness({ tags: ["rails"], aliases: ["alias"], custom: { keep: true }, title: "Synthetic" }, ["#rails"]);
     h.fmTags(["#rails"]);
-    const result = await h.apply(h.authorize());
+    const result = await h.apply(await h.authorize());
     expect(result).toEqual({ status: "applied", addedTags: ["#aws"] });
     expect(h.frontmatter).toEqual({ tags: ["rails", "aws"], aliases: ["alias"], custom: { keep: true }, title: "Synthetic" });
     expect(h.fileManager.processFrontMatter).toHaveBeenCalledExactlyOnceWith(h.file, expect.any(Function));
@@ -113,25 +135,25 @@ describe("TagApplyService", () => {
   });
   it("applies several exact canonical names in one call with persistence-only hash stripping", async () => {
     const h = harness();
-    expect(await h.apply(h.authorize(), [...names, "#aws"])).toEqual({ status: "applied", addedTags: names });
+    expect(await h.apply(await h.authorize(), [...names, "#aws"])).toEqual({ status: "applied", addedTags: names });
     expect(h.frontmatter.tags).toEqual(["aws", "cloud", "programming/aws", "AWS", "日本語", "é", "e\u0301"]);
     expect(h.fileManager.processFrontMatter).toHaveBeenCalledTimes(1);
   });
   it.each(["#new", "aws", "#Aws"])("rejects undisplayed selection %s", async (name) => {
     const h = harness();
-    expect(await h.apply(h.authorize(), [name])).toEqual({ status: "failure", reason: "invalid-selection" });
+    expect(await h.apply(await h.authorize(), [name])).toEqual({ status: "failure", reason: "invalid-selection" });
     expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
   });
   it("rejects forged/copied authorizations and snapshots from another Vault", async () => {
     const h = harness();
-    expect(await h.apply({ ...h.authorize(), allowedTags: ["#new"] }, ["#new"]))
+    expect(await h.apply({ ...await h.authorize(), allowedTags: ["#new"] }, ["#new"]))
       .toEqual({ status: "failure", reason: "invalid-selection" });
     const other = harness();
-    expect(await other.apply(h.authorize())).toEqual({ status: "failure", reason: "invalid-selection" });
+    expect(await other.apply(await h.authorize())).toEqual({ status: "failure", reason: "invalid-selection" });
   });
   it("empty selection is a no-op without resolving source or metadata", async () => {
     const h = harness();
-    const authorization = h.authorize();
+    const authorization = await h.authorize();
     h.vault.getFileByPath.mockClear(); h.metadata.getFileCache.mockClear();
     expect(await h.apply(authorization, [])).toEqual({ status: "no-change" });
     expect(h.vault.getFileByPath).not.toHaveBeenCalled();
@@ -140,14 +162,14 @@ describe("TagApplyService", () => {
   });
   it.each([{ selected: ["#aws", "#cloud"] }, { selected: ["#aws"] }])("filters existing inline tags before mutation: $selected", async ({ selected }) => {
     const h = harness({}, ["#aws"]);
-    expect(await h.apply(h.authorize(), selected)).toEqual(selected.length === 1
+    expect(await h.apply(await h.authorize(), selected)).toEqual(selected.length === 1
       ? { status: "no-change" } : { status: "applied", addedTags: ["#cloud"] });
     expect(h.fileManager.processFrontMatter).toHaveBeenCalledTimes(selected.length === 1 ? 0 : 1);
     expect(h.frontmatter.tags).toEqual(selected.length === 1 ? undefined : ["cloud"]);
   });
   it.each(["replacement", "rename", "move", "missing", "non-md", "filename", "basename"])("rejects source %s", async (change) => {
     const h = harness();
-    const authorization = h.authorize();
+    const authorization = await h.authorize();
     if (change === "replacement") h.vault.getFileByPath.mockReturnValue(Object.assign(new FakeFile(h.file.path), { stat: h.file.stat }) as TFile);
     if (change === "rename") h.file.path = "Synthetic/Renamed.md";
     if (change === "move") h.file.path = "Elsewhere/A.md";
@@ -161,57 +183,57 @@ describe("TagApplyService", () => {
   it("uses the original file without consulting an active note", async () => {
     const h = harness();
     const workspace = { getActiveFile: vi.fn(() => new FakeFile("Synthetic/B.md")) };
-    await h.apply(h.authorize());
+    await h.apply(await h.authorize());
     expect(h.fileManager.processFrontMatter.mock.calls[0][0]).toBe(h.file);
     expect(workspace.getActiveFile).not.toHaveBeenCalled();
   });
   it.each(["mtime", "size"] as const)("capture → %s change → apply refuses mutation", async (key) => {
-    const h = harness(); const authorization = h.authorize();
+    const h = harness(); const authorization = await h.authorize();
     h.file.stat[key]++;
     expect(await h.apply(authorization)).toEqual({ status: "failure", reason: "revision-changed" });
     expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
   });
   it.each([{ tags: ["#aws", "#manual"] }, { tags: ["#AWS"] }, { tags: ["#é"] }, { tags: ["#e\u0301"] }])("refuses changed exact tag set $tags before duplicate filtering", async ({ tags }) => {
-    const h = harness({}, ["#aws"]); const authorization = h.authorize(); h.tags(tags);
+    const h = harness({}, ["#aws"]); const authorization = await h.authorize(); h.tags(tags);
     expect(await h.apply(authorization)).toEqual({ status: "failure", reason: "tag-state-changed" });
     expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
   });
   it("ignores metadata helper iteration order and exact duplicates", async () => {
-    const h = harness({}, ["#aws", "#AWS"]); const authorization = h.authorize();
+    const h = harness({}, ["#aws", "#AWS"]); const authorization = await h.authorize();
     h.tags(["#AWS", "#aws", "#AWS"]);
     expect(await h.apply(authorization, ["#cloud"])).toEqual({ status: "applied", addedTags: ["#cloud"] });
   });
   it("detects Unicode-only changes without normalization", async () => {
-    const h = harness({}, ["#é"]); const authorization = h.authorize();
+    const h = harness({}, ["#é"]); const authorization = await h.authorize();
     h.tags(["#e\u0301"]);
     expect(await h.apply(authorization)).toEqual({ status: "failure", reason: "tag-state-changed" });
     expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
   });
   it("fails closed for metadata unavailable at apply without body reads", async () => {
-    const h = harness(); const authorization = h.authorize(); h.metadata.getFileCache.mockReturnValue(null);
+    const h = harness(); const authorization = await h.authorize(); h.metadata.getFileCache.mockReturnValue(null);
     expect(await h.apply(authorization)).toEqual({ status: "failure", reason: "metadata-unavailable" });
     expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled(); expect(h.forbidden).not.toHaveBeenCalled();
   });
   it("delegates legacy scalar tag interpretation to the official helper", async () => {
     const h = harness({ tags: "rails cloud", aliases: ["keep"] }, ["#rails", "#cloud"]);
     h.fmTags(["#rails", "#cloud"]);
-    expect(await h.apply(h.authorize())).toEqual({ status: "applied", addedTags: ["#aws"] });
+    expect(await h.apply(await h.authorize())).toEqual({ status: "applied", addedTags: ["#aws"] });
     expect(h.frontmatter).toEqual({ tags: ["rails", "cloud", "aws"], aliases: ["keep"] });
     expect(parseFrontMatterTags).toHaveBeenCalledWith(h.frontmatter);
   });
   it.each([null, 3, { unknown: true }, ""])("does not replace unrecognized tags property %s", async (tags) => {
     const h = harness({ tags, custom: "keep" });
-    expect(await h.apply(h.authorize())).toEqual({ status: "failure", reason: "unexpected" });
+    expect(await h.apply(await h.authorize())).toEqual({ status: "failure", reason: "unexpected" });
     expect(h.frontmatter).toEqual({ tags, custom: "keep" });
   });
   it("preserves existing array entries verbatim", async () => {
     const h = harness({ tags: ["#rails", "Rails", "rails"] }, ["#rails", "#Rails"]);
     h.fmTags(["#rails", "#Rails"]);
-    await h.apply(h.authorize());
+    await h.apply(await h.authorize());
     expect(h.frontmatter.tags).toEqual(["#rails", "Rails", "rails", "aws"]);
   });
   it.each(["entry", "input", "source", "revision", "metadata", "final"])("cancels after %s validation with zero mutation calls", async (stage) => {
-    const h = harness(); const authorization = h.authorize();
+    const h = harness(); const authorization = await h.authorize();
     if (stage === "entry") h.controller.abort();
     if (stage === "input") {
       const selected = ["#aws"];
@@ -227,7 +249,7 @@ describe("TagApplyService", () => {
     expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
   });
   it.each(["success", "failure"])("returns actual post-start %s despite cancellation and cleans up lock", async (outcome) => {
-    const h = harness(); const authorization = h.authorize();
+    const h = harness(); const authorization = await h.authorize();
     h.fileManager.processFrontMatter.mockImplementationOnce(async (_file, callback) => {
       h.controller.abort();
       if (outcome === "failure") throw new Error("Private synthetic exception /absolute/path");
@@ -238,11 +260,11 @@ describe("TagApplyService", () => {
     expect(h.forbidden).not.toHaveBeenCalled();
     h.fmTags(outcome === "success" ? ["#aws"] : []);
     h.tags(outcome === "success" ? ["#aws"] : []);
-    expect(await h.service.apply({ authorization: h.authorize(), selectedTags: ["#cloud"] }, new AbortController().signal))
+    expect(await h.service.apply({ authorization: await h.authorize(), selectedTags: ["#cloud"] }, new AbortController().signal))
       .toEqual({ status: "applied", addedTags: ["#cloud"] });
   });
   it("guards pending same-source applies across selections and service instances", async () => {
-    const h = harness(); const authorization = h.authorize();
+    const h = harness(); const authorization = await h.authorize();
     let complete!: () => void;
     h.fileManager.processFrontMatter.mockImplementationOnce(() => new Promise<void>((resolve) => { complete = resolve; }));
     const first = h.apply(authorization);
@@ -254,19 +276,20 @@ describe("TagApplyService", () => {
     expect(await h.apply(authorization, ["#cloud"])).toEqual({ status: "applied", addedTags: ["#cloud"] });
   });
   it("guards the same TFile identity after an external rename while pending", async () => {
-    const h = harness(); const authorization = h.authorize();
+    const h = harness(); const authorization = await h.authorize();
     let complete!: () => void;
     h.fileManager.processFrontMatter.mockImplementationOnce(() => new Promise<void>((resolve) => { complete = resolve; }));
     const first = h.apply(authorization);
     h.file.path = "Synthetic/Renamed.md"; h.file.name = "Renamed.md"; h.file.basename = "Renamed";
-    const renamed = new TagApplyAuthorizationService(h.vault, h.metadata).capture({ ...h.outcome, source: new NoteSource(h.file) });
+    const renamedSource = new NoteSource(h.file);
+    const renamed = new TagApplyAuthorizationService(h.vault, h.metadata).capture({ ...h.outcome, source: renamedSource, evaluationProvenance: await captureEvaluationProvenance(renamedSource, "Synthetic evaluated content") });
     if (renamed.status !== "captured") throw new Error("Synthetic renamed capture failed");
     expect(await h.apply(renamed.authorization, ["#cloud"])).toEqual({ status: "failure", reason: "busy" });
     expect(h.fileManager.processFrontMatter).toHaveBeenCalledTimes(1);
     complete(); await first;
   });
   it.each(["inline", "missing"])("rejects metadata %s changing while the mutation API reads", async (change) => {
-    const h = harness(); const authorization = h.authorize();
+    const h = harness(); const authorization = await h.authorize();
     h.fileManager.processFrontMatter.mockImplementationOnce(async (_file, callback) => {
       if (change === "inline") h.tags(["#manual"]);
       else h.metadata.getFileCache.mockReturnValue(null);
@@ -276,7 +299,7 @@ describe("TagApplyService", () => {
     expect(h.frontmatter).toEqual({});
   });
   it.each(["source", "revision", "frontmatter"])("rejects %s changes during API read before callback assignment", async (change) => {
-    const h = harness(); const authorization = h.authorize();
+    const h = harness(); const authorization = await h.authorize();
     h.fileManager.processFrontMatter.mockImplementationOnce(async (_file, callback) => {
       if (change === "source") h.file.path = "Renamed.md";
       if (change === "revision") h.file.stat.mtime++;
@@ -291,7 +314,7 @@ describe("TagApplyService", () => {
     vi.stubGlobal("fetch", network);
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
-      await h.apply(h.authorize());
+      await h.apply(await h.authorize());
       expect(network).not.toHaveBeenCalled(); expect(log).not.toHaveBeenCalled(); expect(h.forbidden).not.toHaveBeenCalled();
     } finally { log.mockRestore(); }
   });
