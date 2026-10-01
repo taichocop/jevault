@@ -284,8 +284,20 @@ the helper was not enabled and no Desktop mutation was run. Computer Use
 rejected selecting the live Obsidian app because isolation had not yet been
 proved and real Vault data might be exposed. The rejection was respected;
 no indirect app execution, private API or alternative OS automation was used.
-Human input was requested to open only this prepared Vault before any further
-app selection. Baseline unit evidence is not promoted to runtime evidence.
+The human then explicitly authorized operating only the prepared synthetic
+Vault. Selecting Obsidian succeeded, but its visible title still identified
+the earlier SyntheticVault rather than the newly prepared Issue 69 directory.
+Vault management opened once; selecting its folder-open action did not produce
+a confirmed picker/new Vault. No path text or helper command was sent to a note.
+After rebinding and read-only screenshot observation, three bounded attempts
+to open the visible Vault switch control (AX click, screenshot coordinate click,
+and AX click after Raise) produced no accessibility-tree change. No root cause
+was established. The same input-delivery failure occurred three times, so
+Desktop input stopped under the repository's mandatory limit; no workaround
+or silent counter reset followed. The helper remains unenabled/unexecuted and
+the prepared Vault remains isolated on disk. Further Desktop operation needs
+a human-opened prepared Vault and an explicit resume after the UI condition
+changes. Baseline unit evidence is not promoted to runtime evidence.
 
 | Required Desktop observation | Status |
 | --- | --- |
