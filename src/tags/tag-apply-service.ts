@@ -4,6 +4,7 @@ import {
   isIssuedAuthorization, resolveTagApplySource, sameTags,
   type TagApplyAuthorization, type TagApplyFailureReason, type TagApplyMetadata, type TagApplyVault,
 } from "./tag-apply-authorization";
+import { isSameTagIdentity } from "./tag-identity";
 
 export interface TagApplyRequest {
   readonly authorization: TagApplyAuthorization;
@@ -71,7 +72,8 @@ export class TagApplyService {
         return { status: "failure", reason: "tag-state-changed" };
       }
       if (tags.proof !== authorization.metadataProof) return { status: "failure", reason: "metadata-stale" };
-      const additions = selected.filter((name) => !tags.existingTags.includes(name));
+      const additions = selected.filter((name) =>
+        !tags.existingTags.some((existing) => isSameTagIdentity(existing, name)));
       if (signal.aborted) return { status: "cancelled" };
       if (additions.length === 0) return { status: "no-change" };
 

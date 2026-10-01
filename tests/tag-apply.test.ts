@@ -167,6 +167,55 @@ describe("TagApplyService", () => {
     expect(h.fileManager.processFrontMatter).toHaveBeenCalledTimes(selected.length === 1 ? 0 : 1);
     expect(h.frontmatter.tags).toEqual(selected.length === 1 ? undefined : ["cloud"]);
   });
+  it("does not append #aws when the note already contains #AWS", async () => {
+    const h = harness({}, ["#AWS"]);
+    expect(await h.apply(await h.authorize(), ["#aws"])).toEqual({ status: "no-change" });
+    expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
+    expect(h.frontmatter).toEqual({});
+  });
+  it.each([
+    ["#aws", "#aws"],
+    ["#aws", "#AWS"],
+    ["#Programming/AWS", "#programming/aws"],
+  ])("preserves existing %s when allowed selected %s has the same identity", async (existing, selected) => {
+    const frontmatter = { tags: [existing.slice(1)], title: "Synthetic", aliases: ["keep"], custom: { keep: true } };
+    const h = harness(frontmatter, [existing]);
+    h.fmTags([existing]);
+    const authorization = await h.authorize();
+    expect(authorization.allowedTags).toContain(selected);
+    expect(await h.apply(authorization, [selected])).toEqual({ status: "no-change" });
+    expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
+    expect(frontmatter).toEqual({ tags: [existing.slice(1)], title: "Synthetic", aliases: ["keep"], custom: { keep: true } });
+  });
+  it.each([false, true])("filters case-equivalent duplicates and adds only new tags once (frontmatter: %s)", async (inFrontmatter) => {
+    const h = harness({ tags: inFrontmatter ? ["AWS"] : ["rails"], aliases: ["keep"], custom: { keep: true } },
+      inFrontmatter ? ["#AWS"] : ["#AWS", "#rails"]);
+    h.fmTags(inFrontmatter ? ["#AWS"] : ["#rails"]);
+    expect(await h.apply(await h.authorize(), ["#aws", "#cloud", "#programming/aws"]))
+      .toEqual({ status: "applied", addedTags: ["#cloud", "#programming/aws"] });
+    expect(h.fileManager.processFrontMatter).toHaveBeenCalledTimes(1);
+    expect(h.frontmatter).toEqual({ tags: [inFrontmatter ? "AWS" : "rails", "cloud", "programming/aws"],
+      aliases: ["keep"], custom: { keep: true } });
+  });
+  it("keeps distinct tags distinct without broadening exact selection authorization", async () => {
+    const h = harness({}, ["#aws"]);
+    h.outcome.suggestions.push({ tagName: "#aws2", tagId: "synthetic2", choice: "match", matchProbability: 1 });
+    h.outcome.suggestions = h.outcome.suggestions.filter(({ tagName }) => tagName !== "#AWS");
+    const authorization = await h.authorize();
+    expect(await h.apply(authorization, ["#AWS"])).toEqual({ status: "failure", reason: "invalid-selection" });
+    expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
+    expect(await h.apply(authorization, ["#aws", "#aws2", "#cloud"]))
+      .toEqual({ status: "applied", addedTags: ["#aws2", "#cloud"] });
+    expect(h.frontmatter.tags).toEqual(["aws2", "cloud"]);
+    expect(h.fileManager.processFrontMatter).toHaveBeenCalledTimes(1);
+  });
+  it.each([["#é", "#e\u0301"], ["#e\u0301", "#é"]])("does not normalize existing %s to selected %s", async (existing, selected) => {
+    const h = harness({ tags: [existing.slice(1)] }, [existing]);
+    h.fmTags([existing]);
+    expect(await h.apply(await h.authorize(), [selected])).toEqual({ status: "applied", addedTags: [selected] });
+    expect(h.frontmatter.tags).toEqual([existing.slice(1), selected.slice(1)]);
+    expect(h.fileManager.processFrontMatter).toHaveBeenCalledTimes(1);
+  });
   it.each(["replacement", "rename", "move", "missing", "non-md", "filename", "basename"])("rejects source %s", async (change) => {
     const h = harness();
     const authorization = await h.authorize();
@@ -309,8 +358,8 @@ describe("TagApplyService", () => {
     expect(await h.apply(authorization)).toEqual({ status: "failure", reason: change === "frontmatter" ? "tag-state-changed" : `${change}-changed` });
     expect(h.frontmatter.tags).toEqual(change === "frontmatter" ? ["manual"] : undefined);
   });
-  it("has no provider, Secret, HTTP, logging, or body-read calls", async () => {
-    const h = harness(); const network = vi.fn(() => { throw new Error("Forbidden network"); });
+  it.each([{ existing: [] }, { existing: ["#AWS"] }])("has no provider, Secret, HTTP, logging, or body-read calls with existing $existing", async ({ existing }) => {
+    const h = harness({}, existing); const network = vi.fn(() => { throw new Error("Forbidden network"); });
     vi.stubGlobal("fetch", network);
     const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
