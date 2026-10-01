@@ -60,7 +60,7 @@ implementation, extracted parser or new parser dependency is used.
 | [read](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/Vault/read.md) | Reads plaintext directly from disk. A prior read has no lasting lock, metadata binding or promise of including unsaved editor text. |
 | [processFrontMatter](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/FileManager/processFrontMatter.md) | Atomic frontmatter object mutation; propagates YAML/callback errors. Callback has no whole body. Keep this existing path when its metadata proof is available. |
 | [getFrontMatterInfo](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/getFrontMatterInfo.md), [FrontMatterInfo](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/FrontMatterInfo.md) | Public helper describes frontmatter existence/text/offsets for the supplied string. Detailed malformed/BOM/empty-block behavior is not specified. Unexpected results must reject, never broaden eligibility. |
-| [parseYaml](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/parseYaml.md), [stringifyYaml](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/stringifyYaml.md) | Public string/object helpers; signatures do not specify quoting, scalar coercion, Unicode spelling, final newline or formatting. Validate generated data and delimiter/body boundaries by public round-trip; actual helper behavior still needs Desktop evidence. |
+| [parseYaml](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/parseYaml.md), [stringifyYaml](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/stringifyYaml.md) | Public string/object helpers; signatures do not specify quoting, scalar coercion, Unicode spelling, final newline or formatting. Validate generated data and delimiter/body boundaries by public round-trip; the fixed Desktop case passed; broader helper and lifecycle behavior still needs evidence. |
 | [rename](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/Vault/on%28%27rename%27%29.md), [delete](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/Vault/on%28%27delete%27%29.md), [modify](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/Vault/on%28%27modify%27%29.md), [create](https://raw.githubusercontent.com/obsidianmd/obsidian-developer-docs/main/en/Reference/TypeScript%20API/Vault/on%28%27create%27%29.md) | Public lifecycle notifications, with no documented synchronous external filesystem identity lock. Create also runs for existing files on initial load. Events cannot be invented as proof of an unobserved replacement. |
 
 `Vault.process` atomicity concerns the whole-content transaction. The public
@@ -122,9 +122,11 @@ that is absent from the entire callback string. No general Markdown parser or
 Unicode normalization is needed for this restricted proof. This is a source
 syntax proof, not a claim that stale cache omission establishes absence.
 
-The unexpected-helper/malformed guards fail closed. Actual helper handling of
-LF/CRLF, leading content and ordinary no-frontmatter strings is NOT VERIFIED
-on Desktop; unit fixtures deliberately do not certify that helper behavior.
+The unexpected-helper/malformed guards fail closed. Desktop execution accepted
+the fixed plain/LF/CRLF/leading-content cases and rejected heading, normal/empty
+frontmatter, malformed delimiter and BOM cases. These are observations of the
+combined guard, not a general helper specification; some rejections precede
+the helper call. Unit fixtures alone do not certify actual helper behavior.
 Normal/empty frontmatter, malformed opening delimiters, BOM, BOM-frontmatter,
 leading blank delimiter and bare CR are rejected even with a fake absent
 helper. An ambiguous helper result cannot become eligible.
@@ -197,9 +199,13 @@ duplicates are suppressed before serialization; hierarchy is not expanded to
 parents and Unicode is not normalized/folded. Tests establish construction
 and original string preservation for empty, leading, LF, CRLF, mixed-ending,
 trailing-newline and Unicode fixture bodies using **fixed helper responses**.
-They do not prove real YAML helper behavior, encoded disk-byte preservation,
-metadata tag recognition or editor reconciliation. No unrelated frontmatter
-properties exist in this subset.
+Desktop Run and Inspect subsequently verified real public-helper round-trip,
+ordered case/hierarchy/Japanese representation and metadata recognition for
+the fixed three-tag CRLF fixture. Independent comparison of the generated
+synthetic file confirmed the original UTF-8 body bytes and terminal CRLF.
+Broader Unicode normalization variants, mixed-ending disk behavior and editor
+reconciliation remain NOT VERIFIED. No unrelated frontmatter properties exist
+in this subset.
 
 ## Cancellation, concurrency and failures
 
@@ -252,7 +258,7 @@ re-evaluation. Current production types/preparation/UI are unchanged.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Existing changed-event + processFrontMatter | yes | Existing guards | Existing content-bound proof/guards | Verified metadata + #66 semantic filter | Existing boundary | No new behavior here | Existing no rollback | Existing shared service locks | Existing scoped tracking | Requires post-session proof | Predecessor evidence only | Keep unchanged |
 | Separate read/provenance + processFrontMatter | yes | Guards only | **No** body binding at write | No current inline absence | Existing boundary | No solution | Not a remedy | Lock alone insufficient | Target-only possible | General notes | Not needed to reject | Reject |
-| process + no-frontmatter/no-hash + exact retained snapshot | yes | Pre/callback guards; boundary gap remains | **Yes for callback content**, per public guide | Conditional parser-free syntax proof | Candidate/string and round-trip guards; real helpers unverified | NOT VERIFIED | Pre-start 0; callback throw unverified; no rollback | Prototype shared fallback lock; production integration required | Apply-only target read/hash; memory only | Very narrow, 2/10 corpus | **No** | Promising research candidate; do not ship |
+| process + no-frontmatter/no-hash + exact retained snapshot | yes | Pre/callback guards; boundary gap remains | **Yes for callback content**, per public guide | Conditional parser-free syntax proof | Candidate/string and round-trip guards; fixed Desktop case passed | NOT VERIFIED | Pre-start 0; callback throw unverified; no rollback | Prototype shared fallback lock; production integration required | Apply-only target read/hash; memory only | Very narrow, 2/10 corpus | Limited fixed round-trip only; races NOT VERIFIED | Promising research candidate; do not ship |
 | read then modify, or stat/cache alone | yes | Insufficient | **No** | **No** | Cannot rescue freshness | Unverified | No safe remedy | Cannot close read/write gap | Target-only possible | Apparently broad | Not needed to reject | Reject |
 | Keep fail-closed / #68 safe message | yes | No new writes | No new claim | No new claim | No new serialization | No new behavior | No operation | No new writer | No new body handling | Suggestions remain useful | Current production baseline | Current recommendation |
 
@@ -279,47 +285,86 @@ misuse guard, **not** proof of isolation; the operator must confirm the actual
 prepared fixture directory before enabling it.
 
 A standalone fixture Vault and generated helper were prepared at
-`/private/tmp/Jevault-Issue69-Synthetic`. No existing Vault/plugin was edited,
-the helper was not enabled and no Desktop mutation was run. Computer Use
-rejected selecting the live Obsidian app because isolation had not yet been
-proved and real Vault data might be exposed. The rejection was respected;
-no indirect app execution, private API or alternative OS automation was used.
-The human then explicitly authorized operating only the prepared synthetic
-Vault. Selecting Obsidian succeeded, but its visible title still identified
-the earlier SyntheticVault rather than the newly prepared Issue 69 directory.
-Vault management opened once; selecting its folder-open action did not produce
-a confirmed picker/new Vault. No path text or helper command was sent to a note.
-After rebinding and read-only screenshot observation, three bounded attempts
-to open the visible Vault switch control (AX click, screenshot coordinate click,
-and AX click after Raise) produced no accessibility-tree change. No root cause
-was established. The same input-delivery failure occurred three times, so
-Desktop input stopped under the repository's mandatory limit; no workaround
-or silent counter reset followed. The helper remains unenabled/unexecuted and
-the prepared Vault remains isolated on disk. Further Desktop operation needs
-a human-opened prepared Vault and an explicit resume after the UI condition
-changes. Baseline unit evidence is not promoted to runtime evidence.
+`/private/tmp/Jevault-Issue69-Synthetic`. No existing user Vault/plugin was
+edited. Initial Computer Use selection was rejected because isolation had not
+yet been proved and real Vault data might be exposed; that rejection was
+respected without an indirect execution or private/alternative OS API. The
+human explicitly authorized operating only the prepared Vault. Initial UI
+input then produced no observed accessibility change on three bounded attempts,
+so Desktop input stopped. These observations and their counters are retained.
+
+The human reported Obsidian frozen, restarted it, and explicitly reported it
+open. This environment change authorized resume. The native folder picker and
+visible Vault title then confirmed the prepared directory. Only the generated
+synthetic helper was enabled; the isolated `community-plugins.json` independently
+confirmed that single plugin ID. Obsidian's visible version was **1.13.7**;
+installed development API typings remain **1.13.1**.
+
+The explicit Run command returned **written** in the actual Obsidian Modal.
+Its observations were all true: plain, headingRejected, frontmatterRejected,
+emptyFrontmatterRejected, malformedRejected, bomRejected, crlf, lf and
+leadingContent. Run uses fixed synthetic provenance, no TypeSafe/Secret calls,
+and the public helper functions. The fixed target received one new header;
+comparison with the known fixture bytes confirmed the original UTF-8 body
+suffix, its final CRLF, and CRLF-only new header. This is limited real-runtime
+evidence, not a proof of races or editor behavior.
+
+Inspect input initially again had three attempts without observed palette
+state, so input stopped. The human explicitly requested another automatic
+attempt. On that bounded resume the palette was visible, Inspect executed,
+and both accessibility text and screenshot showed:
+
+- `frontmatter: true`
+- `bodyPreserved: true`
+- `representationPreserved: true`
+- `recognized: true`
+
+These values were observed automatically, not supplied by the human. Inspect
+reads the generated fixture and checks public helper output and actual
+metadata tag recognition. It does not perform another mutation. The earlier
+lack of immediate UI change is not promoted into a claim of failed dispatch:
+commands sometimes became visible on a later rebind, and no root cause was
+established. No sleep/polling or private app execution was used.
+
+Cleanup input initially stopped again: the result Modal remained visible after
+keyboard attempts; coordinate close reported `windowNotFoundAtPosition`, and
+AX close reported `elementHasNoFrame`. The human explicitly requested another
+automatic retry. Selecting the named Issue 69 Vault through the native Window
+menu showed the Modal closed. The palette then dispatched Dispose, and settings
+allowed helper disabling. The actual settings screenshot showed its toggle off;
+the isolated `community-plugins.json` independently contained an empty array.
+Thus cleanup is verified as command dispatch and disabled configuration, with
+no separate instrumentation of the private owner state. The helper's public
+`onunload` calls the same disposal method. This terminal cleanup does **not**
+certify Close/unload interleavings around an in-flight process.
+
+The UI blocking condition was resolved on the human-authorized retry; historical
+failures and earlier stops remain recorded rather than silently discarded.
+No generated fixture was deleted, no other Vault was mutated, and no new Run
+was dispatched. The completed Apply's `finally` clears its retained snapshot
+and lock. No background read/hash/listener or pending mutation is introduced.
 
 | Required Desktop observation | Status |
 | --- | --- |
-| Public helper no-frontmatter corpus, including BOM/CRLF/malformed cases | NOT VERIFIED |
-| New frontmatter creation and stringify/parse round-trip | NOT VERIFIED |
-| Obsidian actual Tag recognition | NOT VERIFIED |
-| Case/hierarchy/Japanese representation | NOT VERIFIED |
-| Original body string and disk bytes/line endings | NOT VERIFIED |
+| Public helper no-frontmatter corpus, including BOM/CRLF/malformed cases | Fixed combined guard cases passed; broader helper semantics NOT VERIFIED |
+| New frontmatter creation and stringify/parse round-trip | VERIFIED for the fixed three-tag CRLF fixture |
+| Obsidian actual Tag recognition | VERIFIED for all three selected tags by Inspect |
+| Case/hierarchy/Japanese representation | VERIFIED for the ordered fixed selection; broader NFC/NFD cases NOT VERIFIED |
+| Original body string and disk bytes/line endings | VERIFIED for fixed UTF-8/CRLF body and terminal newline; broader cases NOT VERIFIED |
 | Target note open in editor, unsaved edits and subsequent saves | NOT VERIFIED |
 | External edit race, rename/move/delete/same-path replacement boundary | NOT VERIFIED |
 | Process callback throw / operation failure behavior | NOT VERIFIED |
 | Undo/history/dirty-state effect | NOT VERIFIED |
 | Close/unload around process start | NOT VERIFIED |
+| Terminal Dispose dispatch and helper disabling | VERIFIED; live owner state not separately instrumented |
 
-To resume: operator opens the prepared directory in Obsidian, confirms isolation,
-enables only the synthetic helper, and explicitly invokes Run, then Inspect.
-No polling is needed: a later Inspect observes metadata recognition. Those
-two commands cover only basic round-trip/helper behavior. Separate bounded
-synthetic scenarios are still required for editor unsaved/save, external
-writes, source replacement, callback throws and Close/unload/undo. The current
-helper does not claim to exercise those races. Dispose and disable before
-cleanup; remove only known generated artifacts/fixtures and never a user Vault.
+Separate bounded synthetic scenarios remain required for editor unsaved/save,
+external writes, source replacement, callback throws and Close/unload/undo.
+The current helper does not exercise those races. Past failures and repair
+counts are retained; the resolved UI stop does not fill the missing production
+contract evidence. The helper is disabled and generated fixtures are preserved.
+Any later cleanup must remove only known generated artifacts/fixtures and never
+a user Vault.
 
 ## Next minimum scope and stop
 
@@ -353,7 +398,8 @@ The initial focused run had one mock alias recursion defect in a cancellation
 test, repaired by preserving the mock implementation; the first typecheck
 found one implicit-any fixture parameter, repaired by explicit typing.
 Focused/typing repairs: 2, distinct causes; no repeated root-cause failure.
-Standalone runtime helper bundle: compiled, **not executed**.
+Standalone runtime helper bundle: compiled and executed only in the prepared
+isolated Vault, with the limited Run/Inspect results above.
 
 Final `npm run verify`: **594 tests / 35 files passed**, lint passed, production build
 passed (nested typecheck, bundle and license notices), working/staged whitespace
@@ -375,6 +421,7 @@ lockfile, manifest/version, dependency, workflow, release, normal preparation
 or normal mutation path changes. No user-Vault mutation, TypeSafe request,
 Secret lookup, telemetry, body/digest logging or background scan is introduced.
 The runtime helper is a separately compiled, explicit synthetic-only writer;
-its fixture setup is not production behavior. Unit fakes model process writes,
-not actual Obsidian writes. Required runtime gates remain NOT VERIFIED, and a
+its fixture setup and single observed synthetic write are not production
+behavior. Unit fakes model process writes and do not certify the missing
+Obsidian interleavings. Required runtime gates remain NOT VERIFIED, and a
 green research PR must never be interpreted as approval to ship fallback.
