@@ -31,6 +31,10 @@ Manual candidate selection, confirmation, and move use only local Vault operatio
 
 The already-on-note annotation uses a local metadata-only snapshot of the exact evaluated note, validated by its original file identity and path. It does not read the note body again or switch to the current active note. Missing metadata or mismatched identity is shown as unknown. This annotation processing is local; candidate Tag names and optional descriptions themselves may be sent to TypeSafe as described above. Tag Suggest results are read-only and have no apply action.
 
+During an explicit **Tag Suggest** or **Retry** operation, Jevault computes local SHA-256 content fingerprints for the exact target note. It compares the evaluated content provenance with that note's public metadata event data to verify metadata freshness and prepare a future Tag Apply authorization. Tracking starts before evaluation and lasts until cancellation, failure, or the result Modal closes; plugin unload also disposes it. Retry starts a new session. Unrelated notes are never fingerprinted by this tracking, and plugin load, Settings display, and note opening do not start it.
+
+Fingerprints and provenance remain only in local memory. They are not sent to TypeSafe, persisted, logged, shown in the UI, or sent to telemetry. Preparing authorization does not trigger another TypeSafe request or modify notes. Without a matching observed metadata event, authorization remains unavailable and read-only suggestions still display; an already indexed unchanged note may remain ineligible until such an event is observed.
+
 ## No Jevault backend
 
 Jevault does not operate its own backend. Classification and Tag Suggest requests go from the plugin to the TypeSafe API.

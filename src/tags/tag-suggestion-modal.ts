@@ -3,9 +3,11 @@ import { App, Modal } from "obsidian";
 import { formatProbability } from "../suggestion/suggestion-view-model";
 import type { ExistingTagSnapshot } from "./existing-tag-snapshot";
 import type { TagSuggestionServiceResult } from "./tag-suggestion-service";
+import type { TagApplyPreparedPresentation } from "./tag-apply-preparation";
 
 /** 表示順とcanonical表記を維持する、mutation操作を持たないModal。 */
 export class TagSuggestionModal extends Modal {
+  private closed = false;
   private readonly closeFromOwner = (): void => this.close();
 
   constructor(
@@ -13,12 +15,13 @@ export class TagSuggestionModal extends Modal {
     private readonly outcome: TagSuggestionServiceResult,
     private readonly snapshot: ExistingTagSnapshot,
     private readonly ownerSignal: AbortSignal,
+    private readonly preparation?: TagApplyPreparedPresentation,
   ) {
     super(app);
   }
 
   onOpen(): void {
-    if (this.ownerSignal.aborted) {
+    if (this.closed || this.ownerSignal.aborted) {
       this.close();
       return;
     }
@@ -43,7 +46,10 @@ export class TagSuggestionModal extends Modal {
   }
 
   onClose(): void {
+    if (this.closed) return;
+    this.closed = true;
     this.ownerSignal.removeEventListener("abort", this.closeFromOwner);
     this.contentEl.empty();
+    this.preparation?.dispose();
   }
 }

@@ -20,6 +20,7 @@ import { createTagErrorPresentation } from "./tags/tag-error-presentation";
 import { TagSuggestionCommand } from "./tags/tag-suggestion-command";
 import { TagSuggestionModal } from "./tags/tag-suggestion-modal";
 import { TagSuggestionService } from "./tags/tag-suggestion-service";
+import { TagApplyPreparationSession } from "./tags/tag-apply-preparation";
 
 export default class JevaultPlugin extends Plugin {
   settings: JevaultSettings = loadSettings(undefined);
@@ -89,13 +90,16 @@ export default class JevaultPlugin extends Plugin {
         () => this.settings,
       ),
       existingTags: new ExistingTagSnapshotService(this.app.vault, this.app.metadataCache),
+      startPreparation: () => new TagApplyPreparationSession(
+        this.app.vault, this.app.metadataCache, this.app.workspace.getActiveFile(),
+      ),
       getActiveNotePath: () => this.app.workspace.getActiveFile()?.path ?? null,
       showLoading: () => {
         const notice = new Notice("Jevault is suggesting tags for this note...", 0);
         return { hide: () => notice.hide() };
       },
-      showSuggestions: (outcome, snapshot, ownerSignal) => {
-        new TagSuggestionModal(this.app, outcome, snapshot, ownerSignal).open();
+      showSuggestions: (outcome, snapshot, ownerSignal, preparation) => {
+        new TagSuggestionModal(this.app, outcome, snapshot, ownerSignal, preparation).open();
       },
       showError: (presentation, retry, ownerSignal) => {
         new ClassificationErrorModal(

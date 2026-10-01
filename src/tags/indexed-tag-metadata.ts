@@ -29,9 +29,11 @@ export class IndexedTagMetadataTracker implements VerifiedTagMetadataProvider {
   constructor(
     private readonly vault: Pick<Vault, "getFileByPath">,
     private readonly metadata: Pick<MetadataCache, "on" | "offref">,
+    private readonly target: NoteSource,
   ) {
     this.event = metadata.on("changed", (file, data, cache) => {
-      if (this.disposed) return;
+      // exact target以外の本文は、helper呼び出しやfingerprintより前に除外する。
+      if (this.disposed || !this.target.matches(file)) return;
       try {
         if (this.vault.getFileByPath(file.path) !== file) return;
         // 新eventのdigest待機中に前のproofを使わせず、event順の逆転も防ぐ。
@@ -59,7 +61,7 @@ export class IndexedTagMetadataTracker implements VerifiedTagMetadataProvider {
 
   snapshot(source: NoteSource, provenance: EvaluationProvenance | undefined): VerifiedTagMetadata {
     const file = this.vault.getFileByPath(source.path);
-    if (file === null || !source.matches(file)) return { status: "failure", reason: "metadata-unavailable" };
+    if (file === null || !source.matches(file) || !this.target.matches(file)) return { status: "failure", reason: "metadata-unavailable" };
     const context = evaluationContext(provenance, source);
     const record = this.records.get(file);
     if (this.disposed || !context || !record?.content) return { status: "failure", reason: "freshness-unverified" };

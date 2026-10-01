@@ -27,7 +27,7 @@ function harness() {
     on: vi.fn((_name: string, callback: typeof listener) => { listener = callback; return {} as EventRef; }),
     offref: vi.fn(), getFileCache: forbidden,
   };
-  const tracker = new IndexedTagMetadataTracker(vault, metadata as unknown as Pick<MetadataCache, "on" | "offref">);
+  const tracker = new IndexedTagMetadataTracker(vault, metadata as unknown as Pick<MetadataCache, "on" | "offref">, new NoteSource(original));
   const capture = new TagApplyAuthorizationService(vault, tracker);
   const frontmatter: Record<string, unknown> = {};
   const fileManager = { processFrontMatter: vi.fn(async (_file: TFile, callback: (fm: Record<string, unknown>) => void) => callback(frontmatter)) };
