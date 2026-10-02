@@ -7,6 +7,7 @@ import {
   type TagApplyAuthorization, type TagApplyFailureReason, type TagApplyVault,
 } from "./tag-apply-authorization";
 import type { TagSuggestionServiceResult } from "./tag-suggestion-service";
+import type { TagSuggestionGrant } from "./tag-suggestion-grant";
 
 export type TagApplyPreparationState =
   | { readonly status: "available"; readonly authorization: TagApplyAuthorization }
@@ -21,6 +22,7 @@ export interface TagApplyPreparation {
 /** UIはstateとdisposeだけを受け取り、metadataや認可アルゴリズムを扱わない。 */
 export interface TagApplyPreparedPresentation {
   readonly applyPreparation: TagApplyPreparationState;
+  readonly suggestionGrant?: TagSuggestionGrant;
   dispose(): void;
 }
 

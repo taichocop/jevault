@@ -21,6 +21,7 @@ import { TagSuggestionCommand } from "./tags/tag-suggestion-command";
 import { TagSuggestionModal } from "./tags/tag-suggestion-modal";
 import { TagSuggestionService } from "./tags/tag-suggestion-service";
 import { TagApplyPreparationSession } from "./tags/tag-apply-preparation";
+import { TagSuggestionGrantIssuer } from "./tags/tag-suggestion-grant";
 
 export default class JevaultPlugin extends Plugin {
   settings: JevaultSettings = loadSettings(undefined);
@@ -90,6 +91,7 @@ export default class JevaultPlugin extends Plugin {
         () => this.settings,
       ),
       existingTags: new ExistingTagSnapshotService(this.app.vault, this.app.metadataCache),
+      grantIssuer: new TagSuggestionGrantIssuer(this.app.vault),
       startPreparation: () => new TagApplyPreparationSession(
         this.app.vault, this.app.metadataCache, this.app.workspace.getActiveFile(),
       ),
