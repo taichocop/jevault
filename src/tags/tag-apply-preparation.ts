@@ -1,7 +1,9 @@
 import type { MetadataCache, TFile } from "obsidian";
 
 import { NoteSource } from "../note-source";
-import { IndexedTagMetadataTracker } from "./indexed-tag-metadata";
+import { IndexedTagMetadataTracker, type TagMetadataObservation } from "./indexed-tag-metadata";
+import type { EvaluationProvenance } from "./evaluation-provenance";
+import { classifyTagSuggestionFreshness, type TagSuggestionFreshness } from "./tag-suggestion-freshness";
 import {
   resolveTagApplySource, TagApplyAuthorizationService,
   type TagApplyAuthorization, type TagApplyFailureReason, type TagApplyVault,
@@ -32,6 +34,8 @@ export class TagApplyPreparationSession implements TagApplyPreparation {
   private tracker?: IndexedTagMetadataTracker;
   private disposed = false;
   private prepared = false;
+  private preparedSource?: NoteSource;
+  private evaluationProvenance?: EvaluationProvenance;
   private current: TagApplyPreparationState = { status: "unavailable", reason: "freshness-unverified" };
 
   constructor(
@@ -51,6 +55,16 @@ export class TagApplyPreparationSession implements TagApplyPreparation {
 
   get state(): TagApplyPreparationState { return this.current; }
 
+  get tagMetadataObservation(): TagMetadataObservation | undefined {
+    return this.preparedSource === undefined ? undefined : this.tracker?.observation(this.preparedSource);
+  }
+
+  get suggestionFreshness(): TagSuggestionFreshness {
+    return this.preparedSource === undefined ? "unknown" : classifyTagSuggestionFreshness(
+      this.preparedSource, this.evaluationProvenance, this.tagMetadataObservation,
+    );
+  }
+
   prepare(outcome: TagSuggestionServiceResult): void {
     if (this.disposed || this.prepared) return;
     this.prepared = true;
@@ -61,6 +75,11 @@ export class TagApplyPreparationSession implements TagApplyPreparation {
         return;
       }
       if (!this.tracker) return;
+      // legacy認可の成否と独立に保持し、Modalにはraw observationを渡さない。
+      if (outcome.status === "success") {
+        this.preparedSource = outcome.source;
+        this.evaluationProvenance = outcome.evaluationProvenance;
+      }
       const result = new TagApplyAuthorizationService(this.vault, this.tracker).capture(outcome);
       if (this.disposed) return;
       this.current = result.status === "captured"
@@ -74,6 +93,8 @@ export class TagApplyPreparationSession implements TagApplyPreparation {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.preparedSource = undefined;
+    this.evaluationProvenance = undefined;
     this.current = { status: "unavailable", reason: "freshness-unverified" };
     this.tracker?.dispose();
     this.tracker = undefined;
