@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NoteService } from "../src/note-service";
 import { NoteSource } from "../src/note-source";
 import { NetworkError } from "../src/classification/classification-errors";
-import { TagApplyPreparationSession, type TagApplyPreparedPresentation } from "../src/tags/tag-apply-preparation";
+import { TagApplyPreparationSession, isActiveConfirmedTagApplyIntent, type TagApplyPreparedPresentation } from "../src/tags/tag-apply-preparation";
 import { TagSuggestionCommand } from "../src/tags/tag-suggestion-command";
 import { TagSuggestionService, type TagSuggestionServiceResult } from "../src/tags/tag-suggestion-service";
 import { captureEvaluationProvenance } from "../src/tags/evaluation-provenance";
@@ -103,21 +103,24 @@ async function settledEvent(h: ReturnType<typeof harness>, body = "A", target = 
 }
 
 describe("explicit Tag Apply preparation lifecycle", () => {
-  it("refreshes advisory getters during presentation without recapturing legacy authorization or mutating", async () => {
+  it("refreshes advisory freshness independently of readiness and confirmation without mutating", async () => {
     const h = harness(); const apply = vi.spyOn(TagApplyService.prototype, "apply");
     const run = h.command.execute(); await ready(h); await settledEvent(h);
     h.evaluations[0].resolve(result); await run;
-    const session = h.sessions[0], legacy = session.state, grant = h.shown[0].suggestionGrant!;
+    const session = h.sessions[0], grant = h.shown[0].suggestionGrant!;
+    const confirmation = h.shown[0].confirm(["#aws"])!;
     expect(session.suggestionFreshness).toBe("matching");
     h.switchTo(h.b); await settledEvent(h, "B", h.b);
     expect(session.suggestionFreshness).toBe("matching");
     await settledEvent(h, "PRIVATE_NEW_A_BODY");
     expect(session.tagMetadataObservation?.source).toBe(h.outcomes[0].source);
     expect(session.suggestionFreshness).toBe("changed");
-    expect(session.state).toBe(legacy); expect(h.shown[0].suggestionGrant).toBe(grant);
+    expect(session.getReadiness(["#aws"]).status).toBe("confirmable");
+    expect(isActiveConfirmedTagApplyIntent(confirmation, h.vault)).toBe(true);
+    expect(h.shown[0].suggestionGrant).toBe(grant);
     expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(true);
     expect(h.shown[0]).not.toHaveProperty("tagMetadataObservation");
-    expect(h.shown[0]).not.toHaveProperty("suggestionFreshness");
+    expect(h.shown[0].suggestionFreshness).toBe("changed");
     expect(JSON.stringify(h.shown[0])).not.toContain("PRIVATE_NEW_A_BODY");
     const pending = deferred<ArrayBuffer>();
     const digest = vi.spyOn(globalThis.crypto.subtle, "digest").mockReturnValue(pending.promise);
@@ -131,44 +134,51 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     expect(apply).not.toHaveBeenCalled(); expect(h.mutation).not.toHaveBeenCalled();
     digest.mockRestore(); h.command.dispose();
   });
-  it.each(["A", "B"])("expires %s advisory state after off-path event/restoration without changing legacy presentation", async body => {
+  it.each(["A", "B"])("expires %s advisory state after off-path event/restoration without revoking confirmed intent", async body => {
     const h = harness(); const apply = vi.spyOn(TagApplyService.prototype, "apply");
     const run = h.command.execute(); await ready(h); await settledEvent(h, body);
     h.evaluations[0].resolve(result); await run;
-    const session = h.sessions[0], legacy = session.state, grant = h.shown[0].suggestionGrant!;
+    const session = h.sessions[0], grant = h.shown[0].suggestionGrant!;
+    const confirmation = h.shown[0].confirm(["#aws"])!;
     expect(session.suggestionFreshness).toBe(body === "A" ? "matching" : "changed");
     const path = h.a.path;
     const digest = vi.spyOn(globalThis.crypto.subtle, "digest");
     h.a.path = "Elsewhere/A.md"; h.emit(h.a, "OFF_PATH"); h.a.path = path;
     expect(digest).not.toHaveBeenCalled(); digest.mockRestore();
     expect(session.tagMetadataObservation).toBeUndefined(); expect(session.suggestionFreshness).toBe("unknown");
-    expect(session.state).toBe(legacy); expect(h.shown[0].suggestionGrant).toBe(grant);
+    expect(session.getReadiness(["#aws"]).status).toBe("confirmable");
+    expect(isActiveConfirmedTagApplyIntent(confirmation, h.vault)).toBe(true);
+    expect(h.shown[0].suggestionGrant).toBe(grant);
     expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(true);
     await settledEvent(h);
-    expect(session.suggestionFreshness).toBe("matching"); expect(session.state).toBe(legacy);
+    expect(session.suggestionFreshness).toBe("matching");
+    expect(session.getReadiness(["#aws"]).status).toBe("confirmable");
+    expect(isActiveConfirmedTagApplyIntent(confirmation, h.vault)).toBe(true);
     expect(h.evaluate).toHaveBeenCalledOnce(); expect(h.getApiKey).toHaveBeenCalledOnce();
     expect(h.vault.read).toHaveBeenCalledOnce(); expect(h.metadata.getFileCache).not.toHaveBeenCalled();
     expect(apply).not.toHaveBeenCalled(); expect(h.mutation).not.toHaveBeenCalled(); h.command.dispose();
   });
-  it("starts tracking before evaluation, captures before presentation, transfers until Close, and never mutates", async () => {
+  it("starts tracking before evaluation, prepares before presentation, transfers until Close, and never mutates", async () => {
     const h = harness(); const apply = vi.spyOn(TagApplyService.prototype, "apply");
     expect(h.listeners.size).toBe(0);
     const run = h.command.execute();
     expect(h.listeners.size).toBe(1);
     await ready(h); await settledEvent(h);
     h.evaluations[0].resolve(result); await run;
-    expect(h.shown[0].applyPreparation.status).toBe("available");
+    expect(h.shown[0].getReadiness(["#aws"]).status).toBe("confirmable");
     expect(h.sessions[0].tagMetadataObservation?.source).toBe(h.outcomes[0].source);
     expect(h.sessions[0].suggestionFreshness).toBe("matching");
     expect(h.vault.read).toHaveBeenCalledOnce(); expect(h.getApiKey).toHaveBeenCalledOnce();
     expect(h.metadata.getFileCache).not.toHaveBeenCalled();
     const grant = h.shown[0].suggestionGrant!;
+    const confirmation = h.shown[0].confirm(["#aws"])!;
     expect(grant.source).toBe(h.outcomes[0].source);
     expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(true);
     expect(h.showError).not.toHaveBeenCalled(); expect(h.listeners.size).toBe(1);
     h.shown[0].dispose(); h.shown[0].dispose();
     expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(false);
-    expect(h.sessions[0].state.status).toBe("unavailable");
+    expect(isActiveConfirmedTagApplyIntent(confirmation, h.vault)).toBe(false);
+    expect(h.sessions[0].getReadiness(["#aws"])).toEqual({ status: "blocked", reason: "session-closed", freshness: "unknown" });
     expect(h.sessions[0].tagMetadataObservation).toBeUndefined();
     expect(h.sessions[0].suggestionFreshness).toBe("unknown");
     expect(h.listeners.size).toBe(0); expect(h.metadata.offref).toHaveBeenCalledOnce();
@@ -177,21 +187,21 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     expect(digest).not.toHaveBeenCalled(); expect(apply).not.toHaveBeenCalled(); expect(h.mutation).not.toHaveBeenCalled();
     h.command.dispose(); expect(h.metadata.offref).toHaveBeenCalledOnce();
   });
-  it.each(["no-proof", "stale", "crypto-unavailable"])("preserves read-only success with unavailable preparation: %s", async (scenario) => {
+  it.each(["no-proof", "stale", "crypto-unavailable"])("preserves confirmable readiness with advisory observation unavailable or stale: %s", async (scenario) => {
     const h = harness();
     if (scenario === "crypto-unavailable") vi.stubGlobal("crypto", undefined);
     const run = h.command.execute(); await ready(h);
     if (scenario === "stale") await settledEvent(h, "B");
     h.evaluations[0].resolve(result); await run;
-    expect(h.shown[0].applyPreparation.status).toBe("unavailable");
+    expect(h.shown[0].getReadiness(["#aws"]).status).toBe("confirmable");
     const grant = h.shown[0].suggestionGrant!;
     expect(grant.source).toBe(h.outcomes[0].source);
     expect(grant.allowedTags).toEqual(["#aws"]);
     expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(true);
     if (scenario === "crypto-unavailable") expect(grant.evaluationProvenance).toBeUndefined();
-    if (scenario === "no-proof") expect(h.shown[0].applyPreparation).toEqual({ status: "unavailable", reason: "freshness-unverified" });
+    if (scenario === "no-proof") expect(h.shown[0].getReadiness(["#aws"])).toEqual({ status: "confirmable", freshness: "unknown" });
     if (scenario === "stale") {
-      expect(h.shown[0].applyPreparation).toEqual({ status: "unavailable", reason: "metadata-stale" });
+      expect(h.shown[0].getReadiness(["#aws"])).toEqual({ status: "confirmable", freshness: "changed" });
       expect(h.sessions[0].tagMetadataObservation).toBeDefined();
       expect(h.sessions[0].suggestionFreshness).toBe("changed");
     } else {
@@ -217,7 +227,7 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     expect(grant.source.matches(h.b)).toBe(false);
     expect(grant.source.matches(replacement)).toBe(false);
     expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(true);
-    expect(h.shown[0].applyPreparation).toEqual({ status: "unavailable", reason: "source-changed" });
+    expect(h.shown[0].getReadiness(["#aws"])).toEqual({ status: "blocked", reason: "source-changed", freshness: "unknown" });
     h.command.dispose();
   });
   it.each(["rename", "move"])("does not hash a %s source", async (change) => {
@@ -226,14 +236,16 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     const digest = vi.spyOn(globalThis.crypto.subtle, "digest"); h.emit();
     expect(digest).not.toHaveBeenCalled();
     h.evaluations[0].resolve(result); await run;
-    expect(h.shown[0].applyPreparation.status).toBe("unavailable"); h.command.dispose();
+    expect(h.shown[0].getReadiness(["#aws"]).status).toBe("blocked"); h.command.dispose();
   });
   it("rejects a different outcome source without capturing or falling back to the active file", async () => {
     const h = harness();
     const session = new TagApplyPreparationSession(h.vault, h.metadata as Pick<MetadataCache, "on" | "offref">, h.a);
     const source = new NoteSource(h.b);
-    session.prepare({ status: "success", noteTitle: "B", source, suggestions, evaluationProvenance: await captureEvaluationProvenance(source, "B") });
-    expect(session.state).toEqual({ status: "unavailable", reason: "source-changed" }); session.dispose();
+    const outcome: TagSuggestionServiceResult = { status: "success", noteTitle: "B", source, suggestions, evaluationProvenance: await captureEvaluationProvenance(source, "B") };
+    session.prepare(outcome, new TagSuggestionGrantIssuer(h.vault).issue(outcome));
+    expect(session.getReadiness(["#aws"])).toEqual({ status: "blocked", reason: "source-changed", freshness: "unknown" });
+    expect(session.confirm(["#aws"])).toBeUndefined(); session.dispose();
   });
   it("disposes failure before explicit Retry and gives Retry a new proof/session", async () => {
     const h = harness(); const run = h.command.execute(); await ready(h); await settledEvent(h);
@@ -244,8 +256,8 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     expect(h.sessions[1]).not.toBe(h.sessions[0]);
     expect(h.listeners.size).toBe(1);
     h.evaluations[1].resolve(result); await next;
-    expect(h.shown[0].applyPreparation).toEqual({ status: "unavailable", reason: "freshness-unverified" });
-    expect(h.sessions[0].state.status).toBe("unavailable");
+    expect(h.shown[0].getReadiness(["#aws"])).toEqual({ status: "confirmable", freshness: "unknown" });
+    expect(h.sessions[0].getReadiness(["#aws"])).toEqual({ status: "blocked", reason: "session-closed", freshness: "unknown" });
     expect(h.sessions[0].tagMetadataObservation).toBeUndefined();
     expect(h.sessions[0].suggestionFreshness).toBe("unknown"); h.command.dispose();
   });
@@ -258,7 +270,7 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     if (action !== "failure") h.evaluations[0].resolve(result);
     await run; expect(h.listeners.size).toBe(0);
     pending.resolve(new ArrayBuffer(32)); await pending.promise; await Promise.resolve(); await Promise.resolve();
-    expect(h.sessions[0].state.status).toBe("unavailable"); expect(h.shown).toEqual([]);
+    expect(h.sessions[0].getReadiness(["#aws"])).toEqual({ status: "blocked", reason: "session-closed", freshness: "unknown" }); expect(h.shown).toEqual([]);
     h.callbacks[0](h.a, "A", {}); expect(digest).toHaveBeenCalledOnce(); h.command.dispose();
   });
   it("explicit Retry owner cancellation removes its listener and ignores late hash/evaluation", async () => {
@@ -273,7 +285,7 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     h.evaluations[1].resolve(result); await next;
     pending.resolve(new ArrayBuffer(32)); await pending.promise; await Promise.resolve();
     h.callbacks[1](h.a, "A", {}); expect(digest).toHaveBeenCalledOnce();
-    expect(h.sessions[1].state.status).toBe("unavailable");
+    expect(h.sessions[1].getReadiness(["#aws"])).toEqual({ status: "blocked", reason: "session-closed", freshness: "unknown" });
     expect(h.sessions[1].tagMetadataObservation).toBeUndefined(); expect(h.sessions[1].suggestionFreshness).toBe("unknown");
     expect(h.shown).toEqual([]);
     h.command.dispose();
@@ -283,22 +295,27 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     const pending = deferred<ArrayBuffer>();
     const digest = vi.spyOn(globalThis.crypto.subtle, "digest").mockReturnValue(pending.promise);
     h.emit(); h.evaluations[0].resolve(result); await run;
+    const confirmation = h.shown[0].confirm(["#aws"])!;
+    expect(isActiveConfirmedTagApplyIntent(confirmation, h.vault)).toBe(true);
     expect(h.listeners.size).toBe(1); h.shown[0].dispose();
     pending.resolve(new ArrayBuffer(32)); await pending.promise; await Promise.resolve();
-    expect(h.listeners.size).toBe(0); expect(h.shown[0].applyPreparation.status).toBe("unavailable");
+    expect(h.listeners.size).toBe(0); expect(h.shown[0].getReadiness(["#aws"]).status).toBe("blocked");
+    expect(isActiveConfirmedTagApplyIntent(confirmation, h.vault)).toBe(false);
     expect(h.sessions[0].tagMetadataObservation).toBeUndefined(); expect(h.sessions[0].suggestionFreshness).toBe("unknown");
     h.callbacks[0](h.a, "A", {}); expect(digest).toHaveBeenCalledOnce();
     h.command.dispose();
   });
-  it("missing evaluation provenance remains unavailable even with matching indexed proof", async () => {
+  it("missing evaluation provenance allows confirmation with unknown advisory freshness", async () => {
     const h = harness();
     const session = new TagApplyPreparationSession(h.vault, h.metadata as Pick<MetadataCache, "on" | "offref">, h.a);
     await settledEvent(h);
-    session.prepare({ status: "success", noteTitle: "A", source: new NoteSource(h.a), suggestions });
-    expect(session.state).toEqual({ status: "unavailable", reason: "freshness-unverified" });
+    const outcome: TagSuggestionServiceResult = { status: "success", noteTitle: "A", source: new NoteSource(h.a), suggestions };
+    const lifetime = new TagSuggestionGrantIssuer(h.vault).issue(outcome)!;
+    session.prepare(outcome, lifetime);
+    expect(session.getReadiness(["#aws"])).toEqual({ status: "confirmable", freshness: "unknown" });
     expect(session.tagMetadataObservation).toBeDefined(); expect(session.suggestionFreshness).toBe("unknown");
-    const grant = new TagSuggestionGrantIssuer(h.vault).issue({ status: "success", noteTitle: "A", source: new NoteSource(h.a), suggestions })!;
-    expect(isIssuedSuggestionGrant(grant.grant, h.vault)).toBe(true); grant.dispose();
+    const confirmation = session.confirm(["#aws"])!;
+    expect(isActiveConfirmedTagApplyIntent(confirmation, h.vault)).toBe(true);
     session.dispose();
   });
   it("disposes preparation for an application failure before Modal", async () => {
@@ -322,10 +339,12 @@ describe("explicit Tag Apply preparation lifecycle", () => {
   it("unload disposes an open result and every in-flight evaluation immediately", async () => {
     const h = harness(); const first = h.command.execute(); await ready(h); await settledEvent(h);
     h.evaluations[0].resolve(result); await first;
+    const confirmation = h.shown[0].confirm(["#aws"])!;
     h.switchTo(h.b); const second = h.command.execute(); await ready(h, 2);
     h.command.dispose();
     expect(h.listeners.size).toBe(0); expect(h.hide).toHaveBeenCalledTimes(2);
-    expect(h.shown[0].applyPreparation.status).toBe("unavailable");
+    expect(h.shown[0].getReadiness(["#aws"])).toEqual({ status: "blocked", reason: "session-closed", freshness: "unknown" });
+    expect(isActiveConfirmedTagApplyIntent(confirmation, h.vault)).toBe(false);
     h.evaluations[1].resolve(result); await second; expect(h.shown).toHaveLength(1);
   });
   it("keeps concurrent A/B sessions separate and duplicate requests do not construct another tracker", async () => {
@@ -337,14 +356,14 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     h.emit(h.b, "B"); expect(digest).toHaveBeenCalledTimes(2); digest.mockRestore();
     await settledEvent(h, "A", h.a); await settledEvent(h, "B", h.b);
     h.evaluations[0].resolve(result); h.evaluations[1].resolve(result); await Promise.all([first, second]);
-    expect(h.shown.map(p => p.applyPreparation.status)).toEqual(["available", "available"]);
-    h.shown[0].dispose(); expect(h.listeners.size).toBe(1); expect(h.shown[1].applyPreparation.status).toBe("available");
+    expect(h.shown.map(p => p.getReadiness(["#aws"]).status)).toEqual(["confirmable", "confirmable"]);
+    h.shown[0].dispose(); expect(h.listeners.size).toBe(1); expect(h.shown[1].getReadiness(["#aws"]).status).toBe("confirmable");
     h.shown[1].dispose(); expect(h.listeners.size).toBe(0);
   });
   it("proof listener failure still permits read-only success", async () => {
     const h = harness(); h.metadata.on.mockImplementation(() => { throw new Error("Synthetic metadata failure"); });
     const run = h.command.execute(); await ready(h); h.evaluations[0].resolve(result); await run;
-    expect(h.shown[0].applyPreparation).toEqual({ status: "unavailable", reason: "metadata-unavailable" });
+    expect(h.shown[0].getReadiness(["#aws"])).toEqual({ status: "confirmable", freshness: "unknown" });
     expect(h.showError).not.toHaveBeenCalled(); h.command.dispose();
   });
 });

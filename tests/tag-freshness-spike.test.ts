@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NoteSource } from "../src/note-source";
 import { captureEvaluationProvenance, fingerprintContent } from "../src/tags/evaluation-provenance";
 import { TagApplyPreparationSession } from "../src/tags/tag-apply-preparation";
+import { TagSuggestionGrantIssuer } from "../src/tags/tag-suggestion-grant";
 import { TFile as FakeFile } from "./helpers/obsidian-move";
 import { CurrentBodyProbe, cachedLiteralPresent, conservativeLiteralPresent, frontmatterSnapshot } from "./helpers/tag-freshness-spike";
 
@@ -50,12 +51,14 @@ function harness(body = "OLD", fingerprint = fingerprintContent) {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("Issue #64 A: read snapshot, never an Apply authorization", () => {
-  it("matches evaluation content without a changed event; current production preparation still fails closed", async () => {
+  it("matches evaluation content without a changed event; production readiness keeps freshness advisory", async () => {
     const h = harness(), provenance = await h.evaluate();
     const metadata = { on: vi.fn(() => ({} as EventRef)), offref: vi.fn() };
     const session = new TagApplyPreparationSession(h.vault, metadata, h.original);
-    session.prepare({ status: "success", source: h.source, noteTitle: "Synthetic", suggestions: [], evaluationProvenance: provenance });
-    expect(session.state).toEqual({ status: "unavailable", reason: "freshness-unverified" });
+    const outcome = { status: "success" as const, source: h.source, noteTitle: "Synthetic", evaluationProvenance: provenance,
+      suggestions: [{ tagName: "#aws", tagId: "synthetic", choice: "match" as const, matchProbability: 1 }] };
+    session.prepare(outcome, new TagSuggestionGrantIssuer(h.vault).issue(outcome));
+    expect(session.getReadiness(["#aws"])).toEqual({ status: "confirmable", freshness: "unknown" });
     expect(await h.probe.check(provenance)).toBe("snapshot-match");
     expect(h.vault.read).toHaveBeenCalledExactlyOnceWith(h.original);
     session.dispose(); h.probe.dispose();

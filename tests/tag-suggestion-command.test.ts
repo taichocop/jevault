@@ -10,7 +10,7 @@ import {
   NoActiveNoteError,
 } from "../src/classification/classification-errors";
 import type { TagSuggestionServiceResult } from "../src/tags/tag-suggestion-service";
-import { TagSuggestionGrantIssuer, isIssuedSuggestionGrant } from "../src/tags/tag-suggestion-grant";
+import { TagSuggestionGrantIssuer, isIssuedSuggestionGrant, type TagSuggestionGrantLifetime } from "../src/tags/tag-suggestion-grant";
 import { ClassificationCancelledError } from "../src/classification/classification-cancellation";
 import type { TagApplyPreparedPresentation } from "../src/tags/tag-apply-preparation";
 import { TagSuggestionCommand } from "../src/tags/tag-suggestion-command";
@@ -46,7 +46,17 @@ function createCommand(
   const issue = vi.spyOn(grantIssuer, "issue");
   const command = new TagSuggestionCommand({
     grantIssuer,
-    startPreparation: () => ({ state: { status: "unavailable", reason: "freshness-unverified" }, prepare: () => undefined, dispose: () => undefined }),
+    startPreparation: () => {
+      let lifetime: TagSuggestionGrantLifetime | undefined;
+      return {
+        get suggestionGrant() { return lifetime?.grant; },
+        suggestionFreshness: "unknown",
+        getReadiness: () => ({ status: "blocked", reason: "grant-unavailable", freshness: "unknown" }),
+        confirm: () => undefined,
+        prepare: (_outcome, issuedLifetime) => { lifetime = issuedLifetime; },
+        dispose: () => lifetime?.dispose(),
+      };
+    },
     existingTags: { snapshot },
     tagSuggestionService: { suggestForActiveNote },
     getActiveNotePath,

@@ -5,6 +5,7 @@ import { NoteSource } from "../src/note-source";
 import { captureEvaluationProvenance, fingerprintContent, sameContent, type ContentProvenance, type EvaluationProvenance } from "../src/tags/evaluation-provenance";
 import { IndexedTagMetadataTracker } from "../src/tags/indexed-tag-metadata";
 import { TagApplyAuthorizationService } from "../src/tags/tag-apply-authorization";
+import { TagApplyPreparationSession } from "../src/tags/tag-apply-preparation";
 import { classifyTagSuggestionFreshness } from "../src/tags/tag-suggestion-freshness";
 import { TagSuggestionGrantIssuer } from "../src/tags/tag-suggestion-grant";
 import { TagApplyService } from "../src/tags/tag-apply-service";
@@ -35,7 +36,14 @@ function harness() {
   const fileManager = { processFrontMatter: vi.fn(async (_file: TFile, callback: (fm: Record<string, unknown>) => void) => callback(frontmatter)) };
   const apply = new TagApplyService(vault, fileManager);
   const issuer = new TagSuggestionGrantIssuer(vault);
-  const grant = (outcome: Awaited<ReturnType<typeof evaluate>>) => issuer.issue({ ...outcome, status: "success", noteTitle: "Synthetic" })!.grant;
+  const confirm = (outcome: Awaited<ReturnType<typeof evaluate>>) => {
+    const success = { ...outcome, status: "success" as const, noteTitle: "Synthetic" };
+    const session = new TagApplyPreparationSession(vault, { on: () => ({} as EventRef), offref: () => undefined }, original);
+    session.prepare(success, issuer.issue(success));
+    const confirmation = session.confirm(["#aws"]);
+    if (!confirmation) throw new Error("Synthetic confirmation failed");
+    return confirmation;
+  };
   const tags = new WeakMap<object, string[]>();
   vi.mocked(getAllTags).mockReset().mockImplementation((cache) => tags.get(cache) ?? []);
   vi.mocked(parseFrontMatterTags).mockReset().mockReturnValue([]);
@@ -53,7 +61,7 @@ function harness() {
     const evaluationProvenance = await captureEvaluationProvenance(source, body);
     return { source, evaluationProvenance, suggestions: [{ tagName: "#aws", tagId: "synthetic", choice: "match" as const, matchProbability: 1 }] };
   }
-  return { original, files, vault, metadata, tracker, capture, apply, fileManager, forbidden, evaluate, emit, cache, tags, frontmatter, grant };
+  return { original, files, vault, metadata, tracker, capture, apply, fileManager, forbidden, evaluate, emit, cache, tags, frontmatter, confirm };
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -353,7 +361,7 @@ describe("IndexedTagMetadataTracker", () => {
     expect(h.forbidden).not.toHaveBeenCalled();
     if (result.status !== "captured") throw new Error("Synthetic capture failed");
     expect(result.authorization.existingTags).toEqual(["#aws"]);
-    expect(await h.apply.apply({ grant: h.grant(outcome), selectedTags: ["#aws"] }, new AbortController().signal))
+    expect(await h.apply.apply({ confirmation: h.confirm(outcome) }, new AbortController().signal))
       .toEqual({ status: "applied", addedTags: ["#aws"] });
     expect(h.fileManager.processFrontMatter).toHaveBeenCalledOnce();
   });
@@ -371,7 +379,7 @@ describe("IndexedTagMetadataTracker", () => {
     expect(h.capture.capture(old)).toEqual({ status: "failure", reason: "revision-changed" });
     const result = h.capture.capture(updated);
     if (result.status !== "captured") throw new Error("Synthetic capture failed");
-    expect(await h.apply.apply({ grant: h.grant(updated), selectedTags: ["#aws"] }, new AbortController().signal))
+    expect(await h.apply.apply({ confirmation: h.confirm(updated) }, new AbortController().signal))
       .toEqual({ status: "applied", addedTags: ["#aws"] });
     expect(h.frontmatter).toEqual({ tags: ["aws"] });
     expect(h.fileManager.processFrontMatter).toHaveBeenCalledOnce();
@@ -401,7 +409,7 @@ describe("IndexedTagMetadataTracker", () => {
     const captured = h.capture.capture(outcome);
     if (captured.status !== "captured") throw new Error("Synthetic capture failed");
     h.emit("NEW");
-    expect(await h.apply.apply({ grant: h.grant(outcome), selectedTags: ["#aws"] }, new AbortController().signal))
+    expect(await h.apply.apply({ confirmation: h.confirm(outcome) }, new AbortController().signal))
       .toEqual({ status: "applied", addedTags: ["#aws"] });
     await vi.waitFor(() => expect(h.tracker.snapshot(outcome.source, outcome.evaluationProvenance)).toEqual({ status: "failure", reason: "metadata-stale" }));
     expect(h.fileManager.processFrontMatter).toHaveBeenCalledOnce();
@@ -433,17 +441,17 @@ describe("IndexedTagMetadataTracker", () => {
     h.emit("NEW");
     await vi.waitFor(() => expect(h.tracker.snapshot(outcome.source, outcome.evaluationProvenance)).toEqual({ status: "failure", reason: "metadata-stale" }));
     expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, h.tracker.observation(outcome.source))).toBe("changed");
-    expect(await h.apply.apply({ grant: h.grant(outcome), selectedTags: ["#aws"] }, new AbortController().signal))
+    expect(await h.apply.apply({ confirmation: h.confirm(outcome) }, new AbortController().signal))
       .toEqual({ status: "applied", addedTags: ["#aws"] });
     expect(h.fileManager.processFrontMatter).toHaveBeenCalledOnce();
   });
   it.each(["no-event", "no-provenance", "disposed"])("unknown freshness does not block the grant core: %s", async scenario => {
     const h = harness(); const outcome = await h.evaluate();
     if (scenario === "no-provenance") outcome.evaluationProvenance = undefined;
-    const grant = h.grant(outcome);
+    const confirmation = h.confirm(outcome);
     if (scenario === "disposed") h.tracker.dispose();
     expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, h.tracker.observation(outcome.source))).toBe("unknown");
-    expect(await h.apply.apply({ grant, selectedTags: ["#aws"] }, new AbortController().signal))
+    expect(await h.apply.apply({ confirmation }, new AbortController().signal))
       .toEqual({ status: "applied", addedTags: ["#aws"] });
     expect(h.frontmatter.tags).toEqual(["aws"]); expect(h.forbidden).not.toHaveBeenCalled(); h.tracker.dispose();
   });

@@ -153,7 +153,7 @@ describe("Tag Suggest plugin wiring and read-only safety", () => {
     expect(tagDispose).toHaveBeenCalledOnce();
     expect(h.forbidden).not.toHaveBeenCalled();
   });
-  it("actual plugin wiring captures matching proof and keeps it until read-only Modal Close", async () => {
+  it("actual plugin wiring keeps advisory freshness and an empty Grant until read-only Modal Close", async () => {
     const h = harness();
     Object.assign(h.original, { stat: { ctime: 1, mtime: 2, size: 10 } });
     let resolve!: (value: { evaluations: [] }) => void;
@@ -175,7 +175,7 @@ describe("Tag Suggest plugin wiring and read-only safety", () => {
       resolve({ evaluations: [] }); await run;
       const modals = (Modal as unknown as { instances: Array<{ preparation: TagApplyPreparedPresentation; close(): void }> }).instances;
       expect(modals).toHaveLength(1);
-      expect(modals[0].preparation.applyPreparation.status).toBe("available");
+      expect(modals[0].preparation.getReadiness([])).toEqual({ status: "blocked", reason: "empty-selection", freshness: "matching" });
       const grant = modals[0].preparation.suggestionGrant!;
       expect(grant.allowedTags).toEqual([]);
       expect(isIssuedSuggestionGrant(grant, h.plugin.app.vault)).toBe(true);
@@ -247,7 +247,7 @@ describe("Suggestion Grant production migration safety", () => {
     expect(grant.allowedTags).toEqual(["#cloud", "#aws"]);
     expect(grant.allowedTags).not.toContain("#AWS"); expect(grant.allowedTags).not.toContain("#rails");
     expect(isIssuedSuggestionGrant(grant, h.plugin.app.vault)).toBe(true);
-    expect(modal.preparation.applyPreparation).toEqual({ status: "unavailable", reason: "freshness-unverified" });
+    expect(modal.preparation.getReadiness(["#aws"])).toEqual({ status: "confirmable", freshness: "unknown" });
     h.switchNote(); expect(grant.source.matches(h.other)).toBe(false);
     expect(modal.contentEl.children.map(child => child.text)).toEqual(["Suggested tags for “A”", "", "Close"]);
     expect(provider.evaluate).toHaveBeenCalledOnce(); expect(h.getSecret).toHaveBeenCalledOnce();

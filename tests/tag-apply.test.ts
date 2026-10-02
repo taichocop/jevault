@@ -7,6 +7,7 @@ import { NoteSource } from "../src/note-source";
 import { TagApplyAuthorizationService, type TagApplyAuthorization } from "../src/tags/tag-apply-authorization";
 import { TagSuggestionGrantIssuer, type TagSuggestionGrant } from "../src/tags/tag-suggestion-grant";
 import { TagApplyService } from "../src/tags/tag-apply-service";
+import { TagApplyPreparationSession } from "../src/tags/tag-apply-preparation";
 import { TFile as FakeFile } from "./helpers/obsidian-move";
 
 vi.mock("obsidian", async () => ({
@@ -58,12 +59,22 @@ function harness(frontmatter: Record<string, unknown> = {}, existingTags: string
   }
   const controller = new AbortController();
   const issuer = new TagSuggestionGrantIssuer(vault);
-  const issue = () => issuer.issue({ ...outcome, status: "success", noteTitle: "Synthetic" })!;
+  const sessions = new Map<TagSuggestionGrant, TagApplyPreparationSession>();
+  const confirm = (grant: TagSuggestionGrant, selectedTags: readonly string[] = ["#aws"]) =>
+    sessions.get(grant)?.confirm(selectedTags);
+  const issue = () => {
+    const success = { ...outcome, status: "success" as const, noteTitle: "Synthetic" };
+    const lifetime = issuer.issue(success)!;
+    const session = new TagApplyPreparationSession(vault, { on: vi.fn(), offref: vi.fn() }, file);
+    session.prepare(success, lifetime);
+    sessions.set(lifetime.grant, session);
+    return lifetime;
+  };
   const apply = (grant: TagSuggestionGrant, selectedTags: readonly string[] = ["#aws"]) =>
-    service.apply({ grant, selectedTags }, controller.signal);
+    service.apply({ confirmation: confirm(grant, selectedTags)! }, controller.signal);
   return {
     file, vault, metadata, fileManager, source, capture, service, outcome, authorize, apply, controller,
-    frontmatter, forbidden, cache, issue, issuer,
+    frontmatter, forbidden, cache, issue, issuer, confirm, sessions,
     tags: (tags: string[]) => { currentTags = tags; },
     fmTags: (tags: string[]) => { frontmatterTags = tags; callbackTags = tags; },
     callbackTags: (tags: string[]) => { callbackTags = tags; },
@@ -126,7 +137,29 @@ describe("TagApply authorization capture", () => {
   });
 });
 
-describe("TagApplyService grant-based frontmatter safety", () => {
+describe("TagApplyService confirmed-intent frontmatter safety", () => {
+  it("consumes each accepted confirmation once across service instances", async () => {
+    const h = harness(), confirmation = h.confirm(h.issue().grant)!;
+    expect(await h.service.apply({ confirmation }, h.controller.signal)).toEqual({ status: "applied", addedTags: ["#aws"] });
+    h.fileManager.processFrontMatter.mockClear();
+    const other = new TagApplyService(h.vault, h.fileManager);
+    expect(await other.apply({ confirmation }, h.controller.signal)).toEqual({ status: "failure", reason: "invalid-confirmation" });
+    expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
+  });
+  it("leaves an initially aborted confirmation unused for the later explicit attempt", async () => {
+    const h = harness(), confirmation = h.confirm(h.issue().grant)!;
+    h.controller.abort();
+    expect(await h.service.apply({ confirmation }, h.controller.signal)).toEqual({ status: "cancelled" });
+    expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
+    expect(await h.service.apply({ confirmation }, new AbortController().signal)).toEqual({ status: "applied", addedTags: ["#aws"] });
+  });
+  it("consumes an accepted attempt even when it is cancelled during source resolution", async () => {
+    const h = harness(), confirmation = h.confirm(h.issue().grant)!;
+    h.vault.getFileByPath.mockImplementationOnce(() => { h.controller.abort(); return h.file; });
+    expect(await h.service.apply({ confirmation }, h.controller.signal)).toEqual({ status: "cancelled" });
+    expect(await h.service.apply({ confirmation }, new AbortController().signal)).toEqual({ status: "failure", reason: "invalid-confirmation" });
+    expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
+  });
   it("adds only absent tags and preserves unrelated fields and existing values/order", async () => {
     const h = harness({ tags: ["AWS", "rails", "Rails", "#rails"], title: "Synthetic", aliases: ["keep"], custom: { keep: true } });
     const existing = h.frontmatter.tags;
@@ -173,38 +206,41 @@ describe("TagApplyService grant-based frontmatter safety", () => {
   it.each([["#aws", "#AWS"], ["#AWS", "#aws"], ["#AWS"], ["#new"], ["aws"]])(
     "rejects all unauthorized exact selections before semantic dedupe: %s", async (...selected) => {
       const h = harness({}, [], ["#aws"]);
-      expect(await h.apply(h.issue().grant, selected)).toEqual({ status: "failure", reason: "invalid-selection" });
+      expect(await h.apply(h.issue().grant, selected)).toEqual({ status: "failure", reason: "invalid-confirmation" });
       expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
     },
   );
   it.each([undefined, null, "#aws", {}, [null], [3], ["#aws", undefined]].map(selected => ({ selected })))("rejects malformed selection %#", async ({ selected }) => {
     const h = harness();
-    expect(await h.service.apply({ grant: h.issue().grant, selectedTags: selected as unknown as string[] }, h.controller.signal)).toEqual({ status: "failure", reason: "invalid-selection" });
+    const grant = h.issue().grant;
+    const confirmation = h.sessions.get(grant)!.confirm(selected as unknown as string[]);
+    expect(await h.service.apply({ confirmation: confirmation! }, h.controller.signal)).toEqual({ status: "failure", reason: "invalid-confirmation" });
     expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
   });
   it("rejects copied, forged, revoked, cross-Vault and legacy authority with zero mutation", async () => {
     const h = harness(), lifetime = h.issue(), other = harness();
     const legacy = await h.authorize();
     for (const grant of [{ ...lifetime.grant }, { ...lifetime.grant, allowedTags: ["#forged"] }, legacy]) {
-      expect(await h.apply(grant as TagSuggestionGrant)).toEqual({ status: "failure", reason: "invalid-selection" });
+      expect(await h.apply(grant as TagSuggestionGrant)).toEqual({ status: "failure", reason: "invalid-confirmation" });
     }
-    expect(await other.apply(lifetime.grant)).toEqual({ status: "failure", reason: "invalid-selection" });
+    expect(await other.apply(lifetime.grant)).toEqual({ status: "failure", reason: "invalid-confirmation" });
     lifetime.dispose();
-    expect(await h.apply(lifetime.grant)).toEqual({ status: "failure", reason: "invalid-selection" });
+    expect(await h.apply(lifetime.grant)).toEqual({ status: "failure", reason: "invalid-confirmation" });
     expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled(); expect(other.fileManager.processFrontMatter).not.toHaveBeenCalled();
   });
   it.each(["pre-start", "callback"])("rejects a grant revoked at %s before assignment", async stage => {
     const h = harness(), lifetime = h.issue();
+    const confirmation = h.confirm(lifetime.grant)!;
     if (stage === "pre-start") h.vault.getFileByPath.mockImplementation(() => { lifetime.dispose(); return h.file; });
     else h.fileManager.processFrontMatter.mockImplementationOnce(async (_file, callback) => { lifetime.dispose(); callback(h.frontmatter); });
-    expect(await h.apply(lifetime.grant)).toEqual({ status: "failure", reason: "invalid-selection" });
+    expect(await h.service.apply({ confirmation }, h.controller.signal)).toEqual({ status: "failure", reason: "invalid-confirmation" });
     expect(h.frontmatter).toEqual({});
     expect(h.fileManager.processFrontMatter).toHaveBeenCalledTimes(stage === "pre-start" ? 0 : 1);
   });
-  it("empty selection avoids source/metadata lookup and the mutation API", async () => {
+  it("empty selection cannot issue confirmation or start the mutation API", async () => {
     const h = harness();
-    expect(await h.apply(h.issue().grant, [])).toEqual({ status: "no-change" });
-    expect(h.vault.getFileByPath).not.toHaveBeenCalled(); expect(h.metadata.snapshot).not.toHaveBeenCalled();
+    expect(await h.apply(h.issue().grant, [])).toEqual({ status: "failure", reason: "invalid-confirmation" });
+    expect(h.metadata.snapshot).not.toHaveBeenCalled();
     expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
   });
   it.each(["#aws", "#AWS"])("inline observation %s does not block an absent frontmatter tag", async inline => {
@@ -226,6 +262,7 @@ describe("TagApplyService grant-based frontmatter safety", () => {
   it.each(["replacement", "rename", "move", "missing", "wrong-file", "non-md", "filename", "basename"])(
     "rejects exact source %s with zero mutation", async change => {
       const h = harness(), grant = h.issue().grant;
+      const confirmation = h.confirm(grant)!;
       if (change === "replacement") h.vault.getFileByPath.mockReturnValue(Object.assign(new FakeFile(h.file.path), { stat: h.file.stat }) as TFile);
       if (change === "wrong-file") h.vault.getFileByPath.mockReturnValue(new FakeFile("Synthetic/B.md") as TFile);
       if (change === "rename") h.file.path = "Synthetic/Renamed.md";
@@ -234,7 +271,7 @@ describe("TagApplyService grant-based frontmatter safety", () => {
       if (change === "non-md") h.file.extension = "txt";
       if (change === "filename") h.file.name = "Other.md";
       if (change === "basename") h.file.basename = "Other";
-      expect(await h.apply(grant)).toEqual({ status: "failure", reason: "source-changed" });
+      expect(await h.service.apply({ confirmation }, h.controller.signal)).toEqual({ status: "failure", reason: "source-changed" });
       expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
     },
   );
@@ -281,11 +318,13 @@ describe("TagApplyService grant-based frontmatter safety", () => {
   });
   it.each(["entry", "selection", "source", "final"])("pre-start abort at %s causes zero mutation API calls", async stage => {
     const h = harness(), grant = h.issue().grant, selected = ["#aws"];
-    if (stage === "entry") h.controller.abort();
     if (stage === "selection") Object.defineProperty(selected, 0, { get: () => { h.controller.abort(); return "#aws"; } });
+    const confirmation = h.confirm(grant, selected)!;
+    h.vault.getFileByPath.mockClear();
+    if (stage === "entry") h.controller.abort();
     if (stage === "source") h.vault.getFileByPath.mockImplementation(() => { h.controller.abort(); return h.file; });
     if (stage === "final") h.vault.getFileByPath.mockReturnValueOnce(h.file).mockImplementationOnce(() => { h.controller.abort(); return h.file; });
-    expect(await h.apply(grant, selected)).toEqual({ status: "cancelled" });
+    expect(await h.service.apply({ confirmation }, h.controller.signal)).toEqual({ status: "cancelled" });
     expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
   });
   it.each(["success", "failure"])("returns actual post-start %s after cancellation and releases lock", async outcome => {
@@ -297,7 +336,7 @@ describe("TagApplyService grant-based frontmatter safety", () => {
     });
     expect(await h.apply(grant)).toEqual(outcome === "success"
       ? { status: "applied", addedTags: ["#aws"] } : { status: "failure", reason: "unexpected" });
-    expect(await h.service.apply({ grant, selectedTags: ["#cloud"] }, new AbortController().signal))
+    expect(await h.service.apply({ confirmation: h.confirm(grant, ["#cloud"])! }, new AbortController().signal))
       .toEqual({ status: "applied", addedTags: ["#cloud"] });
     expect(h.forbidden).not.toHaveBeenCalled();
   });
@@ -307,10 +346,13 @@ describe("TagApplyService grant-based frontmatter safety", () => {
     h.fileManager.processFrontMatter.mockImplementationOnce((_file, callback) => new Promise<void>(resolve => {
       complete = () => { callback(h.frontmatter); resolve(); };
     }));
-    const first = h.apply(grant), second = new TagApplyService(h.vault, h.fileManager);
-    expect(await second.apply({ grant, selectedTags: ["#cloud"] }, h.controller.signal)).toEqual({ status: "failure", reason: "busy" });
+    const firstConfirmation = h.confirm(grant)!;
+    const secondConfirmation = h.confirm(grant)!;
+    const first = h.service.apply({ confirmation: firstConfirmation }, h.controller.signal), second = new TagApplyService(h.vault, h.fileManager);
+    expect(await second.apply({ confirmation: secondConfirmation }, h.controller.signal)).toEqual({ status: "failure", reason: "busy" });
     expect(h.fileManager.processFrontMatter).toHaveBeenCalledOnce();
     complete(); expect(await first).toEqual({ status: "applied", addedTags: ["#aws"] });
+    expect(await second.apply({ confirmation: secondConfirmation }, h.controller.signal)).toEqual({ status: "failure", reason: "invalid-confirmation" });
     expect(await h.apply(grant, ["#cloud"])).toEqual({ status: "applied", addedTags: ["#cloud"] });
   });
   it("holds the same TFile lock after a rename with a newly issued grant", async () => {
@@ -320,8 +362,10 @@ describe("TagApplyService grant-based frontmatter safety", () => {
     const first = h.apply(grant);
     h.file.path = "Synthetic/Renamed.md"; h.file.name = "Renamed.md"; h.file.basename = "Renamed";
     const lifetime = h.issuer.issue({ ...h.outcome, status: "success", noteTitle: "Renamed", source: new NoteSource(h.file) })!;
+    const session = new TagApplyPreparationSession(h.vault, { on: vi.fn(), offref: vi.fn() }, h.file);
+    session.prepare({ ...h.outcome, status: "success", noteTitle: "Renamed", source: lifetime.grant.source }, lifetime);
     const second = new TagApplyService(h.vault, h.fileManager);
-    expect(await second.apply({ grant: lifetime.grant, selectedTags: ["#cloud"] }, h.controller.signal)).toEqual({ status: "failure", reason: "busy" });
+    expect(await second.apply({ confirmation: session.confirm(["#cloud"])! }, h.controller.signal)).toEqual({ status: "failure", reason: "busy" });
     expect(h.fileManager.processFrontMatter).toHaveBeenCalledOnce(); complete(); await first;
   });
   it.each(["API", "helper", "assignment"])("sanitizes %s exception with no retry", async boundary => {
