@@ -39,11 +39,13 @@ interface IndexedRecord {
   content?: ContentProvenance;
   existingTags: readonly string[];
   frontmatterTags: readonly string[];
+  observationInvalidated?: boolean;
 }
 
 /** 公開changedイベントのdata/cache pairだけを使う。getFileCache・本文再read・pollingをしない。 */
 export class IndexedTagMetadataTracker implements VerifiedTagMetadataProvider {
   private records = new WeakMap<TFile, IndexedRecord>();
+  private observationRecord?: { file: TFile; record: IndexedRecord };
   private disposed = false;
   private readonly event;
 
@@ -59,6 +61,7 @@ export class IndexedTagMetadataTracker implements VerifiedTagMetadataProvider {
         if (this.vault.getFileByPath(file.path) !== file) return;
         // 新eventのdigest待機中に前のproofを使わせず、event順の逆転も防ぐ。
         this.records.delete(file);
+        this.observationRecord = undefined;
         const source = new NoteSource(file);
         if (source.revision === undefined) return;
         const record: IndexedRecord = {
@@ -68,6 +71,7 @@ export class IndexedTagMetadataTracker implements VerifiedTagMetadataProvider {
           frontmatterTags: Object.freeze([...new Set(parseFrontMatterTags(cache.frontmatter ?? null) ?? [])]),
         };
         this.records.set(file, record);
+        this.observationRecord = { file, record };
         void fingerprintContent(data).then((content) => {
           if (!this.disposed && this.records.get(file) === record && source.matches(file) &&
             record.revision.mtime === file.stat.mtime && record.revision.size === file.stat.size) {
@@ -76,6 +80,7 @@ export class IndexedTagMetadataTracker implements VerifiedTagMetadataProvider {
         });
       } catch {
         this.records.delete(file);
+        this.observationRecord = undefined;
       }
     });
   }
@@ -83,24 +88,35 @@ export class IndexedTagMetadataTracker implements VerifiedTagMetadataProvider {
   observation(source: NoteSource): TagMetadataObservation | undefined {
     if (this.disposed) return undefined;
     try {
-      const file = resolveTagApplySource(this.vault, source);
-      if (file === null || !this.target.matches(file)) return undefined;
-      const record = this.records.get(file);
-      if (!record?.content || !record.source.matches(file) ||
-        record.revision.mtime !== file.stat.mtime || record.revision.size !== file.stat.size) return undefined;
+      const current = this.observationRecord;
+      if (!current) return undefined;
+      const { file, record } = current;
+      if (!this.isCurrentObservationRecord(file, record) || !record.content ||
+        resolveTagApplySource(this.vault, source) !== file) return undefined;
       const observation: TagMetadataObservation = Object.freeze({
         source, revision: record.revision, content: record.content,
         existingTags: record.existingTags, frontmatterTags: record.frontmatterTags,
       });
-      // callerが保持した古いobjectも、新event・revision変更・disposeで比較対象から失効する。
-      acceptedObservations.set(observation, () => !this.disposed && this.records.get(file) === record &&
-        resolveTagApplySource(this.vault, source) === file && this.target.matches(file) && record.source.matches(file) &&
-        record.revision.mtime === file.stat.mtime && record.revision.size === file.stat.size);
+      acceptedObservations.set(observation, () => this.isCurrentObservationRecord(file, record));
       return observation;
     } catch {
       // 読み取り境界の例外は公開せず、弱いstat/cache fallbackも作らない。
       return undefined;
     }
+  }
+
+  private isCurrentObservationRecord(file: TFile, record: IndexedRecord): boolean {
+    if (record.observationInvalidated) return false;
+    try {
+      if (!this.disposed && this.records.get(file) === record &&
+        resolveTagApplySource(this.vault, this.target) === file && record.source.matches(file) &&
+        record.revision.mtime === file.stat.mtime && record.revision.size === file.stat.size) return true;
+    } catch {
+      // 実targetの検証失敗は、例外内容を公開せず観測世代だけ失効させる。
+    }
+    // target/statを戻しても旧世代を復活させない。legacy snapshotにはこの失効を適用しない。
+    record.observationInvalidated = true;
+    return false;
   }
 
   snapshot(source: NoteSource, provenance: EvaluationProvenance | undefined): VerifiedTagMetadata {
@@ -122,5 +138,6 @@ export class IndexedTagMetadataTracker implements VerifiedTagMetadataProvider {
     this.disposed = true;
     this.metadata.offref(this.event);
     this.records = new WeakMap();
+    this.observationRecord = undefined;
   }
 }

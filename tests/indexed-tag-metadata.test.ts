@@ -194,6 +194,52 @@ describe("IndexedTagMetadataTracker", () => {
     h.tracker.dispose();
     expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, observation)).toBe("unknown");
   });
+  it.each(["rename", "move", "delete", "replacement", "non-md", "mtime", "size", "lookup-error"])(
+    "does not revive an observed invalid %s generation after restoration without a new event", async change => {
+      const h = harness(); const outcome = await h.evaluate(); h.emit("OLD");
+      await vi.waitFor(() => expect(h.tracker.observation(outcome.source)).toBeDefined());
+      const old = h.tracker.observation(outcome.source)!, path = h.original.path;
+      if (change === "rename" || change === "move") h.original.path = "Elsewhere/Renamed.md";
+      if (change === "delete") h.files.delete(path);
+      if (change === "replacement") h.files.set(path, file(path));
+      if (change === "non-md") h.original.extension = "txt";
+      if (change === "mtime" || change === "size") h.original.stat[change]++;
+      if (change === "lookup-error") h.vault.getFileByPath.mockImplementation(() => { throw new Error("PRIVATE_LOOKUP_ERROR"); });
+      // getterだけで検出した失効も、同じrecordの全observationに共有される。
+      expect(h.tracker.observation(outcome.source)).toBeUndefined();
+      expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, old)).toBe("unknown");
+      h.original.path = path; h.original.extension = "md"; h.original.stat.mtime = 2; h.original.stat.size = 100;
+      h.files.set(path, h.original);
+      h.vault.getFileByPath.mockImplementation(path => h.files.get(path) ?? null);
+      expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, old)).toBe("unknown");
+      expect(h.tracker.observation(outcome.source)).toBeUndefined();
+      expect(h.capture.capture(outcome).status).toBe("captured");
+      h.emit("OLD"); await vi.waitFor(() => expect(h.tracker.observation(outcome.source)).toBeDefined());
+      expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, h.tracker.observation(outcome.source))).toBe("matching");
+      expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, old)).toBe("unknown");
+      h.tracker.dispose();
+    },
+  );
+  it("expires the shared generation when only a retained observation detects invalidity", async () => {
+    const h = harness(); const outcome = await h.evaluate(); h.emit("OLD");
+    await vi.waitFor(() => expect(h.tracker.observation(outcome.source)).toBeDefined());
+    const first = h.tracker.observation(outcome.source)!, second = h.tracker.observation(outcome.source)!;
+    h.original.stat.mtime++;
+    expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, first)).toBe("unknown");
+    h.original.stat.mtime--;
+    expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, second)).toBe("unknown");
+    expect(h.tracker.observation(outcome.source)).toBeUndefined(); h.tracker.dispose();
+  });
+  it("does not invalidate actual target evidence for a different caller-supplied source", async () => {
+    const h = harness(); const outcome = await h.evaluate(); h.emit("OLD");
+    await vi.waitFor(() => expect(h.tracker.observation(outcome.source)).toBeDefined());
+    const observation = h.tracker.observation(outcome.source)!, other = new NoteSource(file("Synthetic/B.md"));
+    const otherProvenance = await captureEvaluationProvenance(other, "OLD");
+    expect(h.tracker.observation(other)).toBeUndefined();
+    expect(classifyTagSuggestionFreshness(other, otherProvenance, observation)).toBe("unknown");
+    expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, observation)).toBe("matching");
+    expect(h.tracker.observation(outcome.source)).toBeDefined(); h.tracker.dispose();
+  });
   it("classifies missing, forged and differently associated provenance as unknown", async () => {
     const h = harness(); const outcome = await h.evaluate();
     expect(h.tracker.observation(outcome.source)).toBeUndefined();
