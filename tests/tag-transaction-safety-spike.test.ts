@@ -5,6 +5,7 @@ import { NoteSource } from "../src/note-source";
 import { captureEvaluationProvenance } from "../src/tags/evaluation-provenance";
 import { IndexedTagMetadataTracker } from "../src/tags/indexed-tag-metadata";
 import { TagApplyAuthorizationService } from "../src/tags/tag-apply-authorization";
+import { TagSuggestionGrantIssuer } from "../src/tags/tag-suggestion-grant";
 import { TagApplyService } from "../src/tags/tag-apply-service";
 import { classifyTagSuggestionFreshness } from "../src/tags/tag-suggestion-freshness";
 import { isSameTagIdentity } from "../src/tags/tag-identity";
@@ -25,8 +26,8 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-/** real tracker/capture/apply、fake current bodyと明示helper出力。runtime schedulingの再現ではない。 */
-async function legacyHarness(existing: string[] = [], frontmatterTags: string[] = []) {
+/** #77のraceモデルを保持する。#79ではinline重複は許容し、frontmatterだけをstrictにする。 */
+async function observationHarness(existing: string[] = [], frontmatterTags: string[] = []) {
   const original = file(), source = new NoteSource(original);
   const files = new Map([[original.path, original]]);
   const frontmatter: Record<string, unknown> = frontmatterTags.length ? { tags: frontmatterTags.map(tag => tag.slice(1)) } : {};
@@ -61,17 +62,18 @@ async function legacyHarness(existing: string[] = [], frontmatterTags: string[] 
     if (target !== original) throw new Error("Wrong synthetic target");
     fn(frontmatter);
   }) };
-  const service = new TagApplyService(vault, tracker, fileManager);
-  return { original, source, files, vault, metadata, tracker, outcome, authorization: capture.authorization, service, fileManager,
+  const service = new TagApplyService(vault, fileManager);
+  const grant = new TagSuggestionGrantIssuer(vault).issue({ ...outcome, status: "success", noteTitle: "Synthetic" })!.grant;
+  return { grant, original, source, files, vault, metadata, tracker, outcome, authorization: capture.authorization, service, fileManager,
     frontmatter, forbidden, body: () => body, edit: (next: string) => { body = next; },
-    apply: (tags = ["#aws"], signal = new AbortController().signal) => service.apply({ authorization: capture.authorization, selectedTags: tags }, signal) };
+    apply: (tags = ["#aws"], signal = new AbortController().signal) => service.apply({ grant, selectedTags: tags }, signal) };
 }
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("Issue #77: observation correctness is not currency or transaction binding", () => {
   it.each(["before-start", "during-api-read"])("reproduces delayed-notification duplicate with edit %s", async timing => {
-    const h = await legacyHarness();
+    const h = await observationHarness();
     try {
       const old = h.tracker.observation(h.source)!;
       const revision = { ...h.original.stat };
@@ -95,18 +97,18 @@ describe("Issue #77: observation correctness is not currency or transaction bind
     { existing: ["#AWS"], fm: [], selected: "#aws" },
     { existing: ["#日本語"], fm: ["#日本語"], selected: "#日本語" },
     { existing: ["#programming/aws"], fm: [], selected: "#programming/aws" },
-  ])("filters a correctly observed existing tag without changing its representation: $selected / $fm", async ({ existing, fm, selected }) => {
-    const h = await legacyHarness(existing, fm);
+  ])("strictly filters frontmatter while inline observation stays advisory: $selected / $fm", async ({ existing, fm, selected }) => {
+    const h = await observationHarness(existing, fm);
     try {
       const before = structuredClone(h.frontmatter);
-      expect(await h.apply([selected])).toEqual({ status: "no-change" });
-      expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
-      expect(h.frontmatter).toEqual(before);
+      expect(await h.apply([selected])).toEqual(fm.length ? { status: "no-change" } : { status: "applied", addedTags: [selected] });
+      expect(h.fileManager.processFrontMatter).toHaveBeenCalledOnce();
+      expect(h.frontmatter).toEqual(fm.length ? before : { tags: [selected.slice(1)] });
     } finally { h.tracker.dispose(); }
   });
 
   it("does not equate hierarchical parent/child or invent Unicode normalization", async () => {
-    const h = await legacyHarness(["#programming/aws"]);
+    const h = await observationHarness(["#programming/aws"]);
     try {
       expect(isSameTagIdentity("#programming", "#programming/aws")).toBe(false);
       expect(isSameTagIdentity("#é", "#e\u0301")).toBe(false);
@@ -116,14 +118,14 @@ describe("Issue #77: observation correctness is not currency or transaction bind
   });
 
   it("shares the existing lock across instances but cannot lock an external edit", async () => {
-    const h = await legacyHarness(), pending = deferred<void>(), entered = deferred<void>();
+    const h = await observationHarness(), pending = deferred<void>(), entered = deferred<void>();
     try {
       h.fileManager.processFrontMatter.mockImplementationOnce(async (_target, fn) => {
         entered.resolve(); await pending.promise; fn(h.frontmatter);
       });
       const first = h.apply(); await entered.promise;
-      const other = new TagApplyService(h.vault, h.tracker, h.fileManager);
-      expect(await other.apply({ authorization: h.authorization, selectedTags: ["#cloud"] }, new AbortController().signal))
+      const other = new TagApplyService(h.vault, h.fileManager);
+      expect(await other.apply({ grant: h.grant, selectedTags: ["#cloud"] }, new AbortController().signal))
         .toEqual({ status: "failure", reason: "busy" });
       h.edit("Synthetic external write #aws");
       pending.resolve();
@@ -135,7 +137,7 @@ describe("Issue #77: observation correctness is not currency or transaction bind
   });
 
   it("a separate read cannot lock a later processFrontMatter transaction", async () => {
-    const h = await legacyHarness();
+    const h = await observationHarness();
     try {
       const read = vi.fn(async () => h.body());
       const sampled = await read();
@@ -149,7 +151,7 @@ describe("Issue #77: observation correctness is not currency or transaction bind
   });
 
   it("cancels before API start with zero mutation calls and rejects same-path replacement", async () => {
-    const h = await legacyHarness();
+    const h = await observationHarness();
     try {
       const signal = new AbortController(); signal.abort();
       expect(await h.apply(["#aws"], signal.signal)).toEqual({ status: "cancelled" });

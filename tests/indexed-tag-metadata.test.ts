@@ -6,6 +6,7 @@ import { captureEvaluationProvenance, fingerprintContent, sameContent, type Cont
 import { IndexedTagMetadataTracker } from "../src/tags/indexed-tag-metadata";
 import { TagApplyAuthorizationService } from "../src/tags/tag-apply-authorization";
 import { classifyTagSuggestionFreshness } from "../src/tags/tag-suggestion-freshness";
+import { TagSuggestionGrantIssuer } from "../src/tags/tag-suggestion-grant";
 import { TagApplyService } from "../src/tags/tag-apply-service";
 import { TFile as FakeFile } from "./helpers/obsidian-move";
 
@@ -32,7 +33,9 @@ function harness() {
   const capture = new TagApplyAuthorizationService(vault, tracker);
   const frontmatter: Record<string, unknown> = {};
   const fileManager = { processFrontMatter: vi.fn(async (_file: TFile, callback: (fm: Record<string, unknown>) => void) => callback(frontmatter)) };
-  const apply = new TagApplyService(vault, tracker, fileManager);
+  const apply = new TagApplyService(vault, fileManager);
+  const issuer = new TagSuggestionGrantIssuer(vault);
+  const grant = (outcome: Awaited<ReturnType<typeof evaluate>>) => issuer.issue({ ...outcome, status: "success", noteTitle: "Synthetic" })!.grant;
   const tags = new WeakMap<object, string[]>();
   vi.mocked(getAllTags).mockReset().mockImplementation((cache) => tags.get(cache) ?? []);
   vi.mocked(parseFrontMatterTags).mockReset().mockReturnValue([]);
@@ -50,7 +53,7 @@ function harness() {
     const evaluationProvenance = await captureEvaluationProvenance(source, body);
     return { source, evaluationProvenance, suggestions: [{ tagName: "#aws", tagId: "synthetic", choice: "match" as const, matchProbability: 1 }] };
   }
-  return { original, files, vault, metadata, tracker, capture, apply, fileManager, forbidden, evaluate, emit, cache, tags, frontmatter };
+  return { original, files, vault, metadata, tracker, capture, apply, fileManager, forbidden, evaluate, emit, cache, tags, frontmatter, grant };
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -350,9 +353,9 @@ describe("IndexedTagMetadataTracker", () => {
     expect(h.forbidden).not.toHaveBeenCalled();
     if (result.status !== "captured") throw new Error("Synthetic capture failed");
     expect(result.authorization.existingTags).toEqual(["#aws"]);
-    expect(await h.apply.apply({ authorization: result.authorization, selectedTags: ["#aws"] }, new AbortController().signal))
-      .toEqual({ status: "no-change" });
-    expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
+    expect(await h.apply.apply({ grant: h.grant(outcome), selectedTags: ["#aws"] }, new AbortController().signal))
+      .toEqual({ status: "applied", addedTags: ["#aws"] });
+    expect(h.fileManager.processFrontMatter).toHaveBeenCalledOnce();
   });
   it("fixes OLD metadata + NEW stat, then permits only a matching explicit NEW evaluation/event pair", async () => {
     const h = harness(); const old = await h.evaluate("OLD");
@@ -368,10 +371,10 @@ describe("IndexedTagMetadataTracker", () => {
     expect(h.capture.capture(old)).toEqual({ status: "failure", reason: "revision-changed" });
     const result = h.capture.capture(updated);
     if (result.status !== "captured") throw new Error("Synthetic capture failed");
-    expect(await h.apply.apply({ authorization: result.authorization, selectedTags: ["#aws"] }, new AbortController().signal))
-      .toEqual({ status: "no-change" });
-    expect(h.frontmatter).toEqual({});
-    expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
+    expect(await h.apply.apply({ grant: h.grant(updated), selectedTags: ["#aws"] }, new AbortController().signal))
+      .toEqual({ status: "applied", addedTags: ["#aws"] });
+    expect(h.frontmatter).toEqual({ tags: ["aws"] });
+    expect(h.fileManager.processFrontMatter).toHaveBeenCalledOnce();
   });
   it("refuses mismatched indexed content even when mtime/size are identical", async () => {
     const h = harness(); const outcome = await h.evaluate("OLD");
@@ -391,17 +394,17 @@ describe("IndexedTagMetadataTracker", () => {
     expect(h.capture.capture(outcome).status).toBe("failure");
     expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
   });
-  it("immediately invalidates authorization when a newer event arrives, before digest completion", async () => {
+  it("pending newer observation invalidates legacy evidence but does not block the grant core", async () => {
     const h = harness(); const outcome = await h.evaluate();
     h.emit("OLD");
     await vi.waitFor(() => expect(h.capture.capture(outcome).status).toBe("captured"));
     const captured = h.capture.capture(outcome);
     if (captured.status !== "captured") throw new Error("Synthetic capture failed");
     h.emit("NEW");
-    expect(await h.apply.apply({ authorization: captured.authorization, selectedTags: ["#aws"] }, new AbortController().signal))
-      .toEqual({ status: "failure", reason: "freshness-unverified" });
+    expect(await h.apply.apply({ grant: h.grant(outcome), selectedTags: ["#aws"] }, new AbortController().signal))
+      .toEqual({ status: "applied", addedTags: ["#aws"] });
     await vi.waitFor(() => expect(h.tracker.snapshot(outcome.source, outcome.evaluationProvenance)).toEqual({ status: "failure", reason: "metadata-stale" }));
-    expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
+    expect(h.fileManager.processFrontMatter).toHaveBeenCalledOnce();
   });
   it("never lets an older digest completion replace a newer event pair", async () => {
     const h = harness(); const outcome = await h.evaluate("NEW");
@@ -421,7 +424,7 @@ describe("IndexedTagMetadataTracker", () => {
       expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, h.tracker.observation(outcome.source))).toBe("matching");
     } finally { spy.mockRestore(); }
   });
-  it("rejects a newer different-content proof even after that proof finishes", async () => {
+  it("changed advisory freshness and legacy metadata-stale do not block the grant core", async () => {
     const h = harness(); const outcome = await h.evaluate();
     h.emit("OLD");
     await vi.waitFor(() => expect(h.capture.capture(outcome).status).toBe("captured"));
@@ -429,9 +432,20 @@ describe("IndexedTagMetadataTracker", () => {
     if (captured.status !== "captured") throw new Error("Synthetic capture failed");
     h.emit("NEW");
     await vi.waitFor(() => expect(h.tracker.snapshot(outcome.source, outcome.evaluationProvenance)).toEqual({ status: "failure", reason: "metadata-stale" }));
-    expect(await h.apply.apply({ authorization: captured.authorization, selectedTags: ["#aws"] }, new AbortController().signal))
-      .toEqual({ status: "failure", reason: "metadata-stale" });
-    expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
+    expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, h.tracker.observation(outcome.source))).toBe("changed");
+    expect(await h.apply.apply({ grant: h.grant(outcome), selectedTags: ["#aws"] }, new AbortController().signal))
+      .toEqual({ status: "applied", addedTags: ["#aws"] });
+    expect(h.fileManager.processFrontMatter).toHaveBeenCalledOnce();
+  });
+  it.each(["no-event", "no-provenance", "disposed"])("unknown freshness does not block the grant core: %s", async scenario => {
+    const h = harness(); const outcome = await h.evaluate();
+    if (scenario === "no-provenance") outcome.evaluationProvenance = undefined;
+    const grant = h.grant(outcome);
+    if (scenario === "disposed") h.tracker.dispose();
+    expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, h.tracker.observation(outcome.source))).toBe("unknown");
+    expect(await h.apply.apply({ grant, selectedTags: ["#aws"] }, new AbortController().signal))
+      .toEqual({ status: "applied", addedTags: ["#aws"] });
+    expect(h.frontmatter.tags).toEqual(["aws"]); expect(h.forbidden).not.toHaveBeenCalled(); h.tracker.dispose();
   });
   it("copies tags from the event cache so later cache mutation cannot change the proof", async () => {
     const h = harness(); const outcome = await h.evaluate();
