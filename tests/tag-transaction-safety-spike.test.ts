@@ -5,6 +5,7 @@ import { NoteSource } from "../src/note-source";
 import { captureEvaluationProvenance } from "../src/tags/evaluation-provenance";
 import { IndexedTagMetadataTracker } from "../src/tags/indexed-tag-metadata";
 import { TagApplyAuthorizationService } from "../src/tags/tag-apply-authorization";
+import { TagApplyPreparationSession } from "../src/tags/tag-apply-preparation";
 import { TagSuggestionGrantIssuer } from "../src/tags/tag-suggestion-grant";
 import { TagApplyService } from "../src/tags/tag-apply-service";
 import { classifyTagSuggestionFreshness } from "../src/tags/tag-suggestion-freshness";
@@ -63,10 +64,20 @@ async function observationHarness(existing: string[] = [], frontmatterTags: stri
     fn(frontmatter);
   }) };
   const service = new TagApplyService(vault, fileManager);
-  const grant = new TagSuggestionGrantIssuer(vault).issue({ ...outcome, status: "success", noteTitle: "Synthetic" })!.grant;
-  return { grant, original, source, files, vault, metadata, tracker, outcome, authorization: capture.authorization, service, fileManager,
+  const success = { ...outcome, status: "success" as const, noteTitle: "Synthetic" };
+  const sessions: TagApplyPreparationSession[] = [];
+  const confirm = (tags = ["#aws"]) => {
+    const session = new TagApplyPreparationSession(vault, { on: () => ({} as EventRef), offref: () => undefined }, original);
+    sessions.push(session);
+    session.prepare(success, new TagSuggestionGrantIssuer(vault).issue(success));
+    const confirmation = session.confirm(tags);
+    if (!confirmation) throw new Error("Synthetic confirmation failed");
+    return confirmation;
+  };
+  return { original, source, files, vault, metadata, tracker, outcome, authorization: capture.authorization, service, fileManager,
     frontmatter, forbidden, body: () => body, edit: (next: string) => { body = next; },
-    apply: (tags = ["#aws"], signal = new AbortController().signal) => service.apply({ grant, selectedTags: tags }, signal) };
+    confirm, dispose: () => { sessions.forEach(session => session.dispose()); tracker.dispose(); },
+    apply: (tags = ["#aws"], signal = new AbortController().signal) => service.apply({ confirmation: confirm(tags) }, signal) };
 }
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -88,7 +99,7 @@ describe("Issue #77: observation correctness is not currency or transaction bind
       expect(classifyTagSuggestionFreshness(h.source, h.outcome.evaluationProvenance, old)).toBe("matching");
       expect(h.fileManager.processFrontMatter).toHaveBeenCalledOnce();
       expect(h.forbidden).not.toHaveBeenCalled();
-    } finally { h.tracker.dispose(); }
+    } finally { h.dispose(); }
   });
 
   it.each([
@@ -104,7 +115,7 @@ describe("Issue #77: observation correctness is not currency or transaction bind
       expect(await h.apply([selected])).toEqual(fm.length ? { status: "no-change" } : { status: "applied", addedTags: [selected] });
       expect(h.fileManager.processFrontMatter).toHaveBeenCalledOnce();
       expect(h.frontmatter).toEqual(fm.length ? before : { tags: [selected.slice(1)] });
-    } finally { h.tracker.dispose(); }
+    } finally { h.dispose(); }
   });
 
   it("does not equate hierarchical parent/child or invent Unicode normalization", async () => {
@@ -114,7 +125,7 @@ describe("Issue #77: observation correctness is not currency or transaction bind
       expect(isSameTagIdentity("#é", "#e\u0301")).toBe(false);
       expect(await h.apply(["#programming"])).toEqual({ status: "applied", addedTags: ["#programming"] });
       expect(h.frontmatter.tags).toEqual(["programming"]);
-    } finally { h.tracker.dispose(); }
+    } finally { h.dispose(); }
   });
 
   it("shares the existing lock across instances but cannot lock an external edit", async () => {
@@ -125,7 +136,7 @@ describe("Issue #77: observation correctness is not currency or transaction bind
       });
       const first = h.apply(); await entered.promise;
       const other = new TagApplyService(h.vault, h.fileManager);
-      expect(await other.apply({ grant: h.grant, selectedTags: ["#cloud"] }, new AbortController().signal))
+      expect(await other.apply({ confirmation: h.confirm(["#cloud"]) }, new AbortController().signal))
         .toEqual({ status: "failure", reason: "busy" });
       h.edit("Synthetic external write #aws");
       pending.resolve();
@@ -133,7 +144,7 @@ describe("Issue #77: observation correctness is not currency or transaction bind
       expect(h.body().endsWith("#aws")).toBe(true);
       expect(h.frontmatter.tags).toEqual(["aws"]);
       expect(h.fileManager.processFrontMatter).toHaveBeenCalledOnce();
-    } finally { pending.resolve(); h.tracker.dispose(); }
+    } finally { pending.resolve(); h.dispose(); }
   });
 
   it("a separate read cannot lock a later processFrontMatter transaction", async () => {
@@ -147,7 +158,7 @@ describe("Issue #77: observation correctness is not currency or transaction bind
       expect(h.body().endsWith("#aws")).toBe(true);
       expect(h.frontmatter.tags).toEqual(["aws"]);
       expect(read).toHaveBeenCalledOnce(); expect(h.fileManager.processFrontMatter).toHaveBeenCalledOnce();
-    } finally { h.tracker.dispose(); }
+    } finally { h.dispose(); }
   });
 
   it("cancels before API start with zero mutation calls and rejects same-path replacement", async () => {
@@ -155,10 +166,11 @@ describe("Issue #77: observation correctness is not currency or transaction bind
     try {
       const signal = new AbortController(); signal.abort();
       expect(await h.apply(["#aws"], signal.signal)).toEqual({ status: "cancelled" });
+      const confirmation = h.confirm();
       h.files.set(h.source.path, file());
-      expect(await h.apply()).toEqual({ status: "failure", reason: "source-changed" });
+      expect(await h.service.apply({ confirmation }, new AbortController().signal)).toEqual({ status: "failure", reason: "source-changed" });
       expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
-    } finally { h.tracker.dispose(); }
+    } finally { h.dispose(); }
   });
 });
 

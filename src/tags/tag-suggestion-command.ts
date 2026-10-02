@@ -101,8 +101,10 @@ export class TagSuggestionCommand {
       let released = false;
       let grantLifetime: TagSuggestionGrantLifetime | undefined = undefined;
       const presentation: TagApplyPreparedPresentation = {
-        get applyPreparation() { return session.state; },
-        get suggestionGrant() { return grantLifetime?.grant; },
+        get suggestionGrant() { return session.suggestionGrant; },
+        get suggestionFreshness() { return session.suggestionFreshness; },
+        getReadiness: (selectedTags) => session.getReadiness(selectedTags),
+        confirm: (selectedTags) => session.confirm(selectedTags),
         dispose: () => {
           if (released) return;
           released = true;
@@ -123,13 +125,13 @@ export class TagSuggestionCommand {
       if (operation.signal.aborted) {
         return { status: "ignored" };
       }
-      // legacy proofの成否とは独立に、確定した提案だけをoperation lifetimeへ固定する。
+      // advisory観測の成否とは独立に、確定した提案だけをoperation lifetimeへ固定する。
       grantLifetime = this.dependencies.grantIssuer.issue(outcome);
       if (released || operation.signal.aborted || this.lifetime.signal.aborted) {
         grantLifetime?.dispose();
         return { status: "ignored" };
       }
-      session.prepare(outcome);
+      session.prepare(outcome, grantLifetime);
       transferred = this.showSuccessfulOutcome(outcome, preparation, operation.signal);
       return { status: "success" };
     } catch (error) {

@@ -8,6 +8,7 @@ export type VerifiedTagMetadata =
   | { status: "verified"; proof: object; existingTags: readonly string[]; frontmatterTags: readonly string[] }
   | { status: "failure"; reason: "metadata-unavailable" | "freshness-unverified" | "metadata-stale" };
 
+/** @deprecated 評価時点に結び付いたsnapshotはhistorical regression test専用。 */
 export interface VerifiedTagMetadataProvider {
   snapshot(source: NoteSource, provenance: EvaluationProvenance | undefined): VerifiedTagMetadata;
 }
@@ -123,6 +124,7 @@ export class IndexedTagMetadataTracker implements VerifiedTagMetadataProvider {
     return false;
   }
 
+  /** @deprecated production preparationはadvisory observation()だけを使う。 */
   snapshot(source: NoteSource, provenance: EvaluationProvenance | undefined): VerifiedTagMetadata {
     const file = this.vault.getFileByPath(source.path);
     if (file === null || !source.matches(file) || !this.target.matches(file)) return { status: "failure", reason: "metadata-unavailable" };

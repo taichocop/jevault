@@ -1,5 +1,28 @@
 # Issue #71 — Manual Tag Apply responsibility separation
 
+## Issue #81 readiness and confirmed intent migration
+
+[Issue #81](https://github.com/taichocop/jevault/issues/81) supersedes the
+historical preparation and confirmation-generation sketches below. Operation
+preparation now owns the live Suggestion Grant, advisory freshness,
+selection-dependent `confirmable / blocked` readiness and immutable, privately
+issued confirmed intent. Readiness permits explicit confirmation; it does not
+predict final frontmatter validity or mutation success.
+
+`TagApplyService.apply({ confirmation }, signal)` requires that Vault-, Grant-,
+source-, exact ordered selection- and session-bound intent. After the initial
+abort check, an accepted intent is consumed once, including attempts ending in
+busy, source failure or later pre-start cancellation. An initially aborted call
+retains the intent and starts zero mutation calls. Session disposal, Grant
+revocation or selection replacement revokes intent; advisory freshness
+transitions alone do not. The final current-frontmatter authority, additive
+preservation, shared source lock and cancellation behavior remain from #79.
+
+Legacy authorization capture and evaluation-bound `snapshot()` remain deprecated
+for historical regressions and are unreachable from production preparation.
+The Tag Suggest Modal remains read-only; #68 requires its own updated contract
+and explicit approval before introducing selection or Apply UI.
+
 ## Issue #79 approved refinement and production migration
 
 [Issue #79](https://github.com/taichocop/jevault/issues/79) supersedes the

@@ -4,11 +4,12 @@ import {
   resolveTagApplySource, type TagApplyFailureReason, type TagApplyVault,
 } from "./tag-apply-authorization";
 import { isSameTagIdentity } from "./tag-identity";
-import { isIssuedSuggestionGrant, type TagSuggestionGrant } from "./tag-suggestion-grant";
+import {
+  consumeConfirmedTagApplyIntent, isActiveConfirmedTagApplyIntent, type ConfirmedTagApplyIntent,
+} from "./tag-apply-preparation";
 
 export interface TagApplyRequest {
-  readonly grant: TagSuggestionGrant;
-  readonly selectedTags: readonly string[];
+  readonly confirmation: ConfirmedTagApplyIntent;
 }
 
 export type TagApplyResult =
@@ -21,7 +22,7 @@ export type TagApplyResult =
 interface SourceLocks { paths: Set<string>; files: Set<TFile> }
 const locks = new WeakMap<TagApplyVault, SourceLocks>();
 
-/** UI未接続のmutation境界。Grantは提案範囲であり、将来の明示確認を代替しない。 */
+/** UI未接続のmutation境界。active sessionで明示確認された一回限りのintentだけを受理する。 */
 export class TagApplyService {
   constructor(
     private readonly vault: TagApplyVault,
@@ -35,21 +36,18 @@ export class TagApplyService {
     let lockedFile: TFile | undefined;
     let callbackFailure: TagApplyFailureReason | undefined;
     try {
-      const { grant, selectedTags } = request;
-      if (!isIssuedSuggestionGrant(grant, this.vault) || !Array.isArray(selectedTags)) {
-        return { status: "failure", reason: "invalid-selection" };
+      const confirmation = request?.confirmation;
+      // entry abortだけはconsumeしない。受理後のbusy・source失効・abort・API失敗も一試行として消費する。
+      if (!consumeConfirmedTagApplyIntent(confirmation, this.vault)) {
+        return { status: "failure", reason: "invalid-confirmation" };
       }
-      // 全selectionを完全一致で認可してからsemantic dedupeする。case同値で認可を広げない。
-      const selected = [...selectedTags];
-      if (selected.some((name) => typeof name !== "string" || !grant.allowedTags.includes(name))) {
-        return { status: "failure", reason: "invalid-selection" };
-      }
+      const { grant, selectedTags } = confirmation;
+      // issuerの完全一致認可済みselectionだけをsemantic dedupeする。case同値で認可を広げない。
       const unique: string[] = [];
-      for (const name of selected) {
+      for (const name of selectedTags) {
         if (!unique.some((earlier) => isSameTagIdentity(earlier, name))) unique.push(name);
       }
       if (signal.aborted) return { status: "cancelled" };
-      if (unique.length === 0) return { status: "no-change" };
       inFlight = locks.get(this.vault) ?? { paths: new Set<string>(), files: new Set<TFile>() };
       locks.set(this.vault, inFlight);
       const path = grant.source.path;
@@ -68,13 +66,13 @@ export class TagApplyService {
       if (resolveTagApplySource(this.vault, grant.source) !== file) {
         return { status: "failure", reason: "source-changed" };
       }
-      if (!isIssuedSuggestionGrant(grant, this.vault)) return { status: "failure", reason: "invalid-selection" };
+      if (!isActiveConfirmedTagApplyIntent(confirmation, this.vault)) return { status: "failure", reason: "invalid-confirmation" };
       if (signal.aborted) return { status: "cancelled" };
       let additions: string[] = [];
       await this.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
-        // API内部のread待ち中のtarget変更・Grant失効もassignment前に拒否する。
+        // API内部のread待ち中のtarget変更・session/Grant失効もassignment前に拒否する。
         if (resolveTagApplySource(this.vault, grant.source) !== file) callbackFailure = "source-changed";
-        else if (!isIssuedSuggestionGrant(grant, this.vault)) callbackFailure = "invalid-selection";
+        else if (!isActiveConfirmedTagApplyIntent(confirmation, this.vault)) callbackFailure = "invalid-confirmation";
         if (callbackFailure) throw new Error("Tag apply validation failed");
         const existing = frontmatter.tags;
         let preserved: string[];
@@ -98,7 +96,7 @@ export class TagApplyService {
         additions = unique.filter((name) => !currentTags.some((current) => isSameTagIdentity(current, name)));
         if (additions.length === 0) return;
         if (resolveTagApplySource(this.vault, grant.source) !== file) callbackFailure = "source-changed";
-        else if (!isIssuedSuggestionGrant(grant, this.vault)) callbackFailure = "invalid-selection";
+        else if (!isActiveConfirmedTagApplyIntent(confirmation, this.vault)) callbackFailure = "invalid-confirmation";
         if (callbackFailure) throw new Error("Tag apply validation failed");
         // 新規追加分だけ、公式YAML list表記へ変換する。case・階層・Unicodeは保持する。
         frontmatter.tags = [...preserved, ...additions.map((name) => name.slice(1))];

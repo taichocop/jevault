@@ -151,7 +151,7 @@ function createIntegratedCommand() {
   });
   const command = new TagSuggestionCommand({
     grantIssuer: new TagSuggestionGrantIssuer({ getFileByPath: () => null }),
-    startPreparation: () => ({ state: { status: "unavailable", reason: "freshness-unverified" }, prepare: () => undefined, dispose: () => undefined }),
+    startPreparation: () => ({ suggestionFreshness: "unknown", getReadiness: () => ({ status: "blocked", reason: "grant-unavailable", freshness: "unknown" }), confirm: () => undefined, prepare: () => undefined, dispose: () => undefined }),
     existingTags: { snapshot: () => ({ status: "available", names: [] }) },
     tagSuggestionService: { suggestForActiveNote },
     getActiveNotePath: () => "Fixtures/Synthetic.md",

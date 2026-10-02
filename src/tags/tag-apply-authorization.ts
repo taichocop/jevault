@@ -6,9 +6,10 @@ import { evaluationContext, type EvaluationProvenance } from "./evaluation-prove
 import type { VerifiedTagMetadataProvider } from "./indexed-tag-metadata";
 
 export type TagApplyFailureReason =
-  | "invalid-selection" | "source-changed" | "revision-changed"
+  | "invalid-selection" | "invalid-confirmation" | "source-changed" | "revision-changed"
   | "tag-state-changed" | "metadata-unavailable" | "freshness-unverified" | "metadata-stale" | "busy" | "unexpected";
 
+/** @deprecated 評価時点の認可はhistorical test用に残し、production readiness/Applyでは使わない。 */
 export interface TagApplyAuthorization {
   readonly source: NoteSource;
   readonly revision: Readonly<{ mtime: number; size: number }>;
@@ -29,6 +30,7 @@ export type TagApplyMetadata = VerifiedTagMetadataProvider;
 // readonly型だけではJS callerの改変を防げないため、発行済みsnapshotとVaultを照合する。
 const issued = new WeakMap<TagApplyAuthorization, TagApplyVault>();
 
+/** @deprecated historical captureの回帰test専用。 */
 export function isIssuedAuthorization(value: TagApplyAuthorization, vault: TagApplyVault): boolean {
   return issued.get(value) === vault;
 }
@@ -52,7 +54,7 @@ export function sameTags(expected: readonly string[], current: readonly string[]
   return names.size === new Set(expected).size && expected.every((name) => names.has(name));
 }
 
-/** 成功した提案から、selectionを受け付ける前に呼ぶread-only境界。Applyからcaptureしない。 */
+/** @deprecated historical capture専用。operation preparationからは呼ばない。 */
 export class TagApplyAuthorizationService {
   constructor(private readonly vault: TagApplyVault, private readonly metadata: TagApplyMetadata) {}
 

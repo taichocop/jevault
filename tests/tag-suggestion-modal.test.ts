@@ -88,7 +88,7 @@ describe("TagSuggestionModal", () => {
     const owner = new AbortController();
     const dispose = vi.fn();
     const modal = new TagSuggestionModal({} as App, outcome, { status: "available", names: [] }, owner.signal,
-      { applyPreparation: { status: "unavailable", reason: "freshness-unverified" }, dispose });
+      { suggestionFreshness: "unknown", getReadiness: () => ({ status: "blocked", reason: "grant-unavailable", freshness: "unknown" }), confirm: () => undefined, dispose });
     modal.open();
     if (action === "button") (modal.contentEl as unknown as FakeElement).children.at(-1)!.click();
     else if (action === "unload") owner.abort();
