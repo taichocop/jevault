@@ -8,6 +8,7 @@ import {
 
 import { createTagErrorPresentation } from "./tag-error-presentation";
 import type { TagApplyPreparation, TagApplyPreparedPresentation } from "./tag-apply-preparation";
+import type { TagSuggestionGrantIssuer, TagSuggestionGrantLifetime } from "./tag-suggestion-grant";
 
 type TagSuggestionRunner = Pick<TagSuggestionService, "suggestForActiveNote">;
 
@@ -20,6 +21,7 @@ interface TagSuggestionCommandDependencies {
   existingTags: ExistingTagSnapshotProvider;
   getActiveNotePath: () => string | null;
   startPreparation: () => TagApplyPreparation;
+  grantIssuer: Pick<TagSuggestionGrantIssuer, "issue">;
   showLoading: () => LoadingHandle;
   showSuggestions: (outcome: TagSuggestionServiceResult, snapshot: ExistingTagSnapshot, ownerSignal: AbortSignal, preparation: TagApplyPreparedPresentation) => void;
   showError: (
@@ -97,11 +99,14 @@ export class TagSuggestionCommand {
       // 評価中のchanged eventを取り逃さないよう、service開始前にtargetを固定する。
       const session = this.dependencies.startPreparation();
       let released = false;
+      let grantLifetime: TagSuggestionGrantLifetime | undefined = undefined;
       const presentation: TagApplyPreparedPresentation = {
         get applyPreparation() { return session.state; },
+        get suggestionGrant() { return grantLifetime?.grant; },
         dispose: () => {
           if (released) return;
           released = true;
+          grantLifetime?.dispose();
           session.dispose();
           this.preparations.delete(presentation);
         },
@@ -116,6 +121,12 @@ export class TagSuggestionCommand {
         operation.signal,
       );
       if (operation.signal.aborted) {
+        return { status: "ignored" };
+      }
+      // legacy proofの成否とは独立に、確定した提案だけをoperation lifetimeへ固定する。
+      grantLifetime = this.dependencies.grantIssuer.issue(outcome);
+      if (released || operation.signal.aborted || this.lifetime.signal.aborted) {
+        grantLifetime?.dispose();
         return { status: "ignored" };
       }
       session.prepare(outcome);

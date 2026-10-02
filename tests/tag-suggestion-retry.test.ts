@@ -1,3 +1,4 @@
+import { TagSuggestionGrantIssuer } from "../src/tags/tag-suggestion-grant";
 import { fixtureSource } from "./helpers/note-source";
 import type { App } from "obsidian";
 import { describe, expect, it, vi } from "vitest";
@@ -149,6 +150,7 @@ function createIntegratedCommand() {
     modal.open();
   });
   const command = new TagSuggestionCommand({
+    grantIssuer: new TagSuggestionGrantIssuer({ getFileByPath: () => null }),
     startPreparation: () => ({ state: { status: "unavailable", reason: "freshness-unverified" }, prepare: () => undefined, dispose: () => undefined }),
     existingTags: { snapshot: () => ({ status: "available", names: [] }) },
     tagSuggestionService: { suggestForActiveNote },

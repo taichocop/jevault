@@ -8,6 +8,7 @@ import { TagApplyPreparationSession, type TagApplyPreparedPresentation } from ".
 import { TagSuggestionCommand } from "../src/tags/tag-suggestion-command";
 import { TagSuggestionService, type TagSuggestionServiceResult } from "../src/tags/tag-suggestion-service";
 import { captureEvaluationProvenance } from "../src/tags/evaluation-provenance";
+import { TagSuggestionGrantIssuer, isIssuedSuggestionGrant } from "../src/tags/tag-suggestion-grant";
 import { TagApplyService } from "../src/tags/tag-apply-service";
 import type { TagEvaluationResult } from "../src/tags/tag-evaluation";
 import { TFile as FakeFile } from "./helpers/obsidian-move";
@@ -66,6 +67,7 @@ function harness() {
   const outcomes: TagSuggestionServiceResult[] = [];
   const showError = vi.fn(); const hide = vi.fn();
   const command = new TagSuggestionCommand({
+    grantIssuer: new TagSuggestionGrantIssuer(vault),
     tagSuggestionService: service, getActiveNotePath: () => active?.path ?? null,
     startPreparation: () => {
       const session = new TagApplyPreparationSession(vault, metadata as Pick<MetadataCache, "on" | "offref">, active);
@@ -107,8 +109,12 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     await ready(h); await settledEvent(h);
     h.evaluations[0].resolve(result); await run;
     expect(h.shown[0].applyPreparation.status).toBe("available");
+    const grant = h.shown[0].suggestionGrant!;
+    expect(grant.source).toBe(h.outcomes[0].source);
+    expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(true);
     expect(h.showError).not.toHaveBeenCalled(); expect(h.listeners.size).toBe(1);
     h.shown[0].dispose(); h.shown[0].dispose();
+    expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(false);
     expect(h.sessions[0].state.status).toBe("unavailable");
     expect(h.listeners.size).toBe(0); expect(h.metadata.offref).toHaveBeenCalledOnce();
     const digest = vi.spyOn(globalThis.crypto.subtle, "digest");
@@ -123,6 +129,11 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     if (scenario === "stale") await settledEvent(h, "B");
     h.evaluations[0].resolve(result); await run;
     expect(h.shown[0].applyPreparation.status).toBe("unavailable");
+    const grant = h.shown[0].suggestionGrant!;
+    expect(grant.source).toBe(h.outcomes[0].source);
+    expect(grant.allowedTags).toEqual(["#aws"]);
+    expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(true);
+    if (scenario === "crypto-unavailable") expect(grant.evaluationProvenance).toBeUndefined();
     if (scenario === "no-proof") expect(h.shown[0].applyPreparation).toEqual({ status: "unavailable", reason: "freshness-unverified" });
     if (scenario === "stale") expect(h.shown[0].applyPreparation).toEqual({ status: "unavailable", reason: "metadata-stale" });
     expect(h.showError).not.toHaveBeenCalled(); expect(h.mutation).not.toHaveBeenCalled(); h.command.dispose();
@@ -135,6 +146,11 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     expect(digest).not.toHaveBeenCalled();
     h.evaluations[0].resolve(result); await run;
     expect(h.outcomes[0].source.matches(h.a)).toBe(true);
+    const grant = h.shown[0].suggestionGrant!;
+    expect(grant.source).toBe(h.outcomes[0].source);
+    expect(grant.source.matches(h.b)).toBe(false);
+    expect(grant.source.matches(replacement)).toBe(false);
+    expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(true);
     expect(h.shown[0].applyPreparation).toEqual({ status: "unavailable", reason: "source-changed" });
     h.command.dispose();
   });
@@ -215,6 +231,7 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     const h = harness();
     // All application failures cross the same rejected service boundary; no automatic retry.
     const rejected = new TagSuggestionCommand({
+      grantIssuer: new TagSuggestionGrantIssuer(h.vault),
       startPreparation: () => {
         const session = new TagApplyPreparationSession(h.vault, h.metadata as Pick<MetadataCache, "on" | "offref">, h.a);
         h.sessions.push(session); return session;

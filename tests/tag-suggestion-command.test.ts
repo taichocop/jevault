@@ -4,9 +4,15 @@ import { describe, expect, it, vi } from "vitest";
 import {
   MissingApiKeyError,
   NetworkError,
+  NoCandidatesError,
+  TypeSafeApiError,
+  UnsupportedFileError,
   NoActiveNoteError,
 } from "../src/classification/classification-errors";
 import type { TagSuggestionServiceResult } from "../src/tags/tag-suggestion-service";
+import { TagSuggestionGrantIssuer, isIssuedSuggestionGrant } from "../src/tags/tag-suggestion-grant";
+import { ClassificationCancelledError } from "../src/classification/classification-cancellation";
+import type { TagApplyPreparedPresentation } from "../src/tags/tag-apply-preparation";
 import { TagSuggestionCommand } from "../src/tags/tag-suggestion-command";
 
 const success: TagSuggestionServiceResult = {
@@ -35,7 +41,11 @@ function createCommand(
   const showSuggestions = vi.fn();
   const showError = vi.fn();
   const snapshot = vi.fn(() => ({ status: "available" as const, names: ["#aws"] }));
+  const vault = { getFileByPath: vi.fn(() => null) };
+  const grantIssuer = new TagSuggestionGrantIssuer(vault);
+  const issue = vi.spyOn(grantIssuer, "issue");
   const command = new TagSuggestionCommand({
+    grantIssuer,
     startPreparation: () => ({ state: { status: "unavailable", reason: "freshness-unverified" }, prepare: () => undefined, dispose: () => undefined }),
     existingTags: { snapshot },
     tagSuggestionService: { suggestForActiveNote },
@@ -45,7 +55,7 @@ function createCommand(
     showError,
   });
 
-  return { command, snapshot, hide, showError, showLoading, showSuggestions };
+  return { command, vault, issue, snapshot, hide, showError, showLoading, showSuggestions };
 }
 
 describe("TagSuggestionCommand", () => {
@@ -311,5 +321,88 @@ describe("TagSuggestionCommand cancellation", () => {
     h.command.dispose();
     await execution;
     expect(h.showError).not.toHaveBeenCalled();
+  });
+});
+
+function shownPresentation(h: ReturnType<typeof createCommand>, index = 0): TagApplyPreparedPresentation {
+  return h.showSuggestions.mock.calls[index][3] as TagApplyPreparedPresentation;
+}
+
+describe("TagSuggestionCommand grant lifetime", () => {
+  it("issues exactly once after final success with the original result source", async () => {
+    const pending = deferred<TagSuggestionServiceResult>(); const h = createCommand(() => pending.promise);
+    const run = h.command.execute(); expect(h.issue).not.toHaveBeenCalled();
+    pending.resolve(success); await run;
+    const presentation = shownPresentation(h); const grant = presentation.suggestionGrant!;
+    expect(h.issue).toHaveBeenCalledExactlyOnceWith(success);
+    expect(grant.source).toBe(success.source); expect(grant.allowedTags).toEqual(["#aws"]);
+    expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(true);
+    presentation.dispose(); presentation.dispose();
+    expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(false); h.command.dispose();
+  });
+  it("Close/replacement and explicit Retry success use distinct grants while old grants stay revoked", async () => {
+    const suggest = vi.fn<() => Promise<TagSuggestionServiceResult>>()
+      .mockResolvedValueOnce(success).mockRejectedValueOnce(new NetworkError()).mockResolvedValueOnce(success);
+    const h = createCommand(suggest); await h.command.execute();
+    const old = shownPresentation(h); const oldGrant = old.suggestionGrant!; old.dispose();
+    await h.command.execute(); const retry = h.showError.mock.calls[0][1] as () => Promise<unknown>;
+    await retry(); const next = shownPresentation(h, 1).suggestionGrant!;
+    expect(next).not.toBe(oldGrant); expect(h.issue).toHaveBeenCalledTimes(2);
+    expect(isIssuedSuggestionGrant(oldGrant, h.vault)).toBe(false);
+    expect(isIssuedSuggestionGrant(next, h.vault)).toBe(true);
+    h.command.dispose(); expect(isIssuedSuggestionGrant(next, h.vault)).toBe(false);
+  });
+  it("unload revokes multiple open grants and ignores a late pending success", async () => {
+    const pending = deferred<TagSuggestionServiceResult>();
+    const suggest = vi.fn<() => Promise<TagSuggestionServiceResult>>()
+      .mockResolvedValueOnce(success).mockResolvedValueOnce(success).mockImplementationOnce(() => pending.promise);
+    const h = createCommand(suggest); await h.command.execute(); await h.command.execute();
+    const grants = [shownPresentation(h).suggestionGrant!, shownPresentation(h, 1).suggestionGrant!];
+    const run = h.command.execute(); h.command.dispose(); h.command.dispose();
+    grants.forEach(grant => expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(false));
+    pending.resolve(success); await run;
+    expect(h.issue).toHaveBeenCalledTimes(2); expect(h.showSuggestions).toHaveBeenCalledTimes(2);
+  });
+  it("explicit owner abort suppresses issuance even if the service completes late", async () => {
+    const pending = deferred<TagSuggestionServiceResult>();
+    const suggest = vi.fn<() => Promise<TagSuggestionServiceResult>>()
+      .mockRejectedValueOnce(new NetworkError()).mockImplementationOnce(() => pending.promise);
+    const h = createCommand(suggest); await h.command.execute();
+    const retry = h.showError.mock.calls[0][1] as (signal: AbortSignal) => Promise<unknown>;
+    const owner = new AbortController(); const run = retry(owner.signal); owner.abort(); pending.resolve(success); await run;
+    expect(h.issue).not.toHaveBeenCalled(); expect(h.showSuggestions).not.toHaveBeenCalled(); h.command.dispose();
+  });
+  it.each([new NetworkError(), new NoActiveNoteError(), new UnsupportedFileError(), new NoCandidatesError(),
+    new MissingApiKeyError(), new TypeSafeApiError(), new ClassificationCancelledError()])(
+    "failure/cancellation leaves no usable grant: %s", async (error) => {
+      const h = createCommand(async () => { throw error; }); await h.command.execute();
+      expect(h.issue).not.toHaveBeenCalled(); expect(h.showSuggestions).not.toHaveBeenCalled(); h.command.dispose();
+    },
+  );
+  it("presentation failure revokes the issued grant before transfer", async () => {
+    const h = createCommand(async () => success);
+    h.showSuggestions.mockImplementation(() => { throw new Error("Synthetic presentation failure"); });
+    await h.command.execute();
+    const lifetime = h.issue.mock.results[0].value!;
+    expect(isIssuedSuggestionGrant(lifetime.grant, h.vault)).toBe(false); h.command.dispose();
+  });
+  it("unload at snapshot boundary revokes issuance without presenting", async () => {
+    const h = createCommand(async () => success);
+    h.snapshot.mockImplementation(() => { h.command.dispose(); return { status: "available", names: [] }; });
+    await h.command.execute();
+    expect(h.issue).toHaveBeenCalledOnce();
+    expect(isIssuedSuggestionGrant(h.issue.mock.results[0].value!.grant, h.vault)).toBe(false);
+    expect(h.showSuggestions).not.toHaveBeenCalled();
+  });
+  it("invalid runtime issuance preserves read-only suggestions without a forged/default grant", async () => {
+    const invalid = { ...success, suggestions: [{ ...success.suggestions[0], choice: "other" as const }] };
+    const h = createCommand(async () => invalid); await h.command.execute();
+    expect(h.showSuggestions).toHaveBeenCalledOnce(); expect(h.showError).not.toHaveBeenCalled();
+    expect(shownPresentation(h).suggestionGrant).toBeUndefined(); h.command.dispose();
+  });
+  it("successful empty result still has an active empty grant", async () => {
+    const h = createCommand(async () => ({ ...success, suggestions: [] })); await h.command.execute();
+    const grant = shownPresentation(h).suggestionGrant!;
+    expect(grant.allowedTags).toEqual([]); expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(true); h.command.dispose();
   });
 });
