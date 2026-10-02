@@ -22,6 +22,7 @@ import { TagSuggestionModal } from "./tags/tag-suggestion-modal";
 import { TagSuggestionService } from "./tags/tag-suggestion-service";
 import { TagApplyPreparationSession } from "./tags/tag-apply-preparation";
 import { TagSuggestionGrantIssuer } from "./tags/tag-suggestion-grant";
+import { TagApplyService } from "./tags/tag-apply-service";
 
 export default class JevaultPlugin extends Plugin {
   settings: JevaultSettings = loadSettings(undefined);
@@ -82,6 +83,7 @@ export default class JevaultPlugin extends Plugin {
         void this.classificationCommand?.execute();
       },
     });
+    const tagApplyService = new TagApplyService(this.app.vault, this.app.fileManager);
     this.tagSuggestionCommand = new TagSuggestionCommand({
       tagSuggestionService: new TagSuggestionService(
         this.noteService,
@@ -101,7 +103,9 @@ export default class JevaultPlugin extends Plugin {
         return { hide: () => notice.hide() };
       },
       showSuggestions: (outcome, snapshot, ownerSignal, preparation) => {
-        new TagSuggestionModal(this.app, outcome, snapshot, ownerSignal, preparation).open();
+        new TagSuggestionModal(this.app, outcome, snapshot, ownerSignal, preparation, tagApplyService, (message) => {
+          new Notice(message);
+        }).open();
       },
       showError: (presentation, retry, ownerSignal) => {
         new ClassificationErrorModal(
