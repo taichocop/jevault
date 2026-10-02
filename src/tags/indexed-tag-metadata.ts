@@ -55,8 +55,12 @@ export class IndexedTagMetadataTracker implements VerifiedTagMetadataProvider {
     private readonly target: NoteSource,
   ) {
     this.event = metadata.on("changed", (file, data, cache) => {
+      if (this.disposed) return;
+      // 元TFileの無効なeventも観測世代を失効させる。legacy recordは削除しない。
+      const current = this.observationRecord;
+      if (current?.file === file) this.isCurrentObservationRecord(file, current.record);
       // exact target以外の本文は、helper呼び出しやfingerprintより前に除外する。
-      if (this.disposed || !this.target.matches(file)) return;
+      if (!this.target.matches(file)) return;
       try {
         if (this.vault.getFileByPath(file.path) !== file) return;
         // 新eventのdigest待機中に前のproofを使わせず、event順の逆転も防ぐ。

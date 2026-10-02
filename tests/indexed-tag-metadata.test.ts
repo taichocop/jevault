@@ -230,6 +230,74 @@ describe("IndexedTagMetadataTracker", () => {
     expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, second)).toBe("unknown");
     expect(h.tracker.observation(outcome.source)).toBeUndefined(); h.tracker.dispose();
   });
+  it.each([
+    ["OLD", "Synthetic/Renamed.md"], ["NEW", "Synthetic/Renamed.md"],
+    ["OLD", "Elsewhere/A.md"], ["NEW", "Elsewhere/A.md"],
+  ])("expires a %s observation on an off-path event at %s before any getter", async (body, movedPath) => {
+    const h = harness(); const outcome = await h.evaluate(); h.emit(body);
+    await vi.waitFor(() => expect(h.tracker.observation(outcome.source)).toBeDefined());
+    const first = h.tracker.observation(outcome.source)!, second = h.tracker.observation(outcome.source)!;
+    expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, first)).toBe(body === "OLD" ? "matching" : "changed");
+    const path = h.original.path;
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest");
+    vi.mocked(getAllTags).mockClear(); vi.mocked(parseFrontMatterTags).mockClear();
+    try {
+      h.files.delete(path); h.original.path = movedPath; h.files.set(movedPath, h.original);
+      h.original.stat.mtime++; h.original.stat.size++;
+      h.emit("PRIVATE_OFF_PATH_BODY", h.cache(["#offpath"]));
+      expect(digest).not.toHaveBeenCalled(); expect(getAllTags).not.toHaveBeenCalled();
+      expect(parseFrontMatterTags).not.toHaveBeenCalled();
+      // 無効な区間でgetter/classifierを呼ばずにpath/statを戻す。
+      h.files.delete(movedPath); h.original.path = path; h.files.set(path, h.original);
+      h.original.stat.mtime--; h.original.stat.size--;
+      for (const observation of [first, second]) {
+        expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, observation)).toBe("unknown");
+        expect(JSON.stringify(observation)).not.toContain("PRIVATE_OFF_PATH_BODY");
+      }
+      expect(h.tracker.observation(outcome.source)).toBeUndefined();
+      if (body === "OLD") expect(h.capture.capture(outcome).status).toBe("captured");
+      else expect(h.capture.capture(outcome)).toEqual({ status: "failure", reason: "metadata-stale" });
+      h.emit("OLD", h.cache(["#restored"]));
+      await vi.waitFor(() => expect(h.tracker.observation(outcome.source)).toBeDefined());
+      const latest = h.tracker.observation(outcome.source)!;
+      expect(latest.existingTags).toEqual(["#restored"]);
+      expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, latest)).toBe("matching");
+      expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, first)).toBe("unknown");
+      expect(h.forbidden).not.toHaveBeenCalled(); expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
+    } finally { digest.mockRestore(); h.tracker.dispose(); }
+  });
+  it("does not revive a pending generation after an off-path event and late fingerprint completion", async () => {
+    const h = harness(); const outcome = await h.evaluate();
+    const realDigest = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
+    let complete!: () => Promise<void>;
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest").mockImplementation((algorithm, bytes) =>
+      new Promise<ArrayBuffer>(resolve => { complete = async () => resolve(await realDigest(algorithm, bytes)); }));
+    try {
+      h.emit("OLD");
+      const path = h.original.path; h.original.path = "Elsewhere/A.md";
+      h.emit("OFF_PATH"); h.original.path = path;
+      expect(digest).toHaveBeenCalledOnce();
+      await complete();
+      await vi.waitFor(() => expect(h.capture.capture(outcome).status).toBe("captured"));
+      expect(h.tracker.observation(outcome.source)).toBeUndefined();
+      expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, h.tracker.observation(outcome.source))).toBe("unknown");
+    } finally { digest.mockRestore(); h.tracker.dispose(); }
+  });
+  it("keeps an established observation when unrelated or replacement objects emit events", async () => {
+    const h = harness(); const outcome = await h.evaluate(); h.emit("OLD", h.cache(["#original"]));
+    await vi.waitFor(() => expect(h.tracker.observation(outcome.source)).toBeDefined());
+    const observation = h.tracker.observation(outcome.source)!;
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest");
+    vi.mocked(getAllTags).mockClear(); vi.mocked(parseFrontMatterTags).mockClear();
+    try {
+      h.emit("OTHER", h.cache(), file("Synthetic/B.md"));
+      h.emit("REPLACEMENT", h.cache(), file(h.original.path));
+      expect(digest).not.toHaveBeenCalled(); expect(getAllTags).not.toHaveBeenCalled();
+      expect(parseFrontMatterTags).not.toHaveBeenCalled();
+      expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, observation)).toBe("matching");
+      expect(h.tracker.observation(outcome.source)?.existingTags).toEqual(["#original"]);
+    } finally { digest.mockRestore(); h.tracker.dispose(); }
+  });
   it("does not invalidate actual target evidence for a different caller-supplied source", async () => {
     const h = harness(); const outcome = await h.evaluate(); h.emit("OLD");
     await vi.waitFor(() => expect(h.tracker.observation(outcome.source)).toBeDefined());

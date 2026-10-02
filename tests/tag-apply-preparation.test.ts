@@ -131,6 +131,25 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     expect(apply).not.toHaveBeenCalled(); expect(h.mutation).not.toHaveBeenCalled();
     digest.mockRestore(); h.command.dispose();
   });
+  it.each(["A", "B"])("expires %s advisory state after off-path event/restoration without changing legacy presentation", async body => {
+    const h = harness(); const apply = vi.spyOn(TagApplyService.prototype, "apply");
+    const run = h.command.execute(); await ready(h); await settledEvent(h, body);
+    h.evaluations[0].resolve(result); await run;
+    const session = h.sessions[0], legacy = session.state, grant = h.shown[0].suggestionGrant!;
+    expect(session.suggestionFreshness).toBe(body === "A" ? "matching" : "changed");
+    const path = h.a.path;
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest");
+    h.a.path = "Elsewhere/A.md"; h.emit(h.a, "OFF_PATH"); h.a.path = path;
+    expect(digest).not.toHaveBeenCalled(); digest.mockRestore();
+    expect(session.tagMetadataObservation).toBeUndefined(); expect(session.suggestionFreshness).toBe("unknown");
+    expect(session.state).toBe(legacy); expect(h.shown[0].suggestionGrant).toBe(grant);
+    expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(true);
+    await settledEvent(h);
+    expect(session.suggestionFreshness).toBe("matching"); expect(session.state).toBe(legacy);
+    expect(h.evaluate).toHaveBeenCalledOnce(); expect(h.getApiKey).toHaveBeenCalledOnce();
+    expect(h.vault.read).toHaveBeenCalledOnce(); expect(h.metadata.getFileCache).not.toHaveBeenCalled();
+    expect(apply).not.toHaveBeenCalled(); expect(h.mutation).not.toHaveBeenCalled(); h.command.dispose();
+  });
   it("starts tracking before evaluation, captures before presentation, transfers until Close, and never mutates", async () => {
     const h = harness(); const apply = vi.spyOn(TagApplyService.prototype, "apply");
     expect(h.listeners.size).toBe(0);
