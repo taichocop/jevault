@@ -1,6 +1,7 @@
 import { getAllTags, parseFrontMatterTags, type MetadataCache, type TFile, type Vault } from "obsidian";
 
 import { NoteSource } from "../note-source";
+import { resolveTagApplySource } from "./tag-apply-authorization";
 import { evaluationContext, fingerprintContent, sameContent, type ContentProvenance, type EvaluationProvenance } from "./evaluation-provenance";
 
 export type VerifiedTagMetadata =
@@ -9,6 +10,15 @@ export type VerifiedTagMetadata =
 
 export interface VerifiedTagMetadataProvider {
   snapshot(source: NoteSource, provenance: EvaluationProvenance | undefined): VerifiedTagMetadata;
+}
+
+/** 同一changedイベントの観測値であり、現在のtransactionやmutation安全性を証明しない。 */
+export interface TagMetadataObservation {
+  readonly source: NoteSource;
+  readonly revision: Readonly<{ mtime: number; size: number }>;
+  readonly content: ContentProvenance;
+  readonly existingTags: readonly string[];
+  readonly frontmatterTags: readonly string[];
 }
 
 interface IndexedRecord {
@@ -57,6 +67,24 @@ export class IndexedTagMetadataTracker implements VerifiedTagMetadataProvider {
         this.records.delete(file);
       }
     });
+  }
+
+  observation(source: NoteSource): TagMetadataObservation | undefined {
+    if (this.disposed) return undefined;
+    try {
+      const file = resolveTagApplySource(this.vault, source);
+      if (file === null || !this.target.matches(file)) return undefined;
+      const record = this.records.get(file);
+      if (!record?.content || !record.source.matches(file) ||
+        record.revision.mtime !== file.stat.mtime || record.revision.size !== file.stat.size) return undefined;
+      return Object.freeze({
+        source, revision: record.revision, content: record.content,
+        existingTags: record.existingTags, frontmatterTags: record.frontmatterTags,
+      });
+    } catch {
+      // 読み取り境界の例外は公開せず、弱いstat/cache fallbackも作らない。
+      return undefined;
+    }
   }
 
   snapshot(source: NoteSource, provenance: EvaluationProvenance | undefined): VerifiedTagMetadata {

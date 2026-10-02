@@ -48,6 +48,7 @@ function harness() {
       const ref = {} as EventRef; listeners.set(ref, callback); return ref;
     }),
     offref: vi.fn((ref: EventRef) => { listeners.delete(ref); }),
+    getFileCache: vi.fn(() => { throw new Error("Forbidden observation fallback"); }),
   };
   const emit = (target = a, body = "A") => {
     for (const callback of listeners.values()) callback(target, body, { names: [] } as CachedMetadata);
@@ -56,10 +57,11 @@ function harness() {
   const evaluate = vi.fn(() => {
     const pending = deferred<TagEvaluationResult>(); evaluations.push(pending); return pending.promise;
   });
+  const getApiKey = vi.fn(() => "unit-test-only");
   const service = new TagSuggestionService(
     new NoteService({ getActiveFile: () => active }, vault),
     { discover: () => [{ id: "tag_001", name: "#aws" }] },
-    { getApiKey: () => "unit-test-only" },
+    { getApiKey },
     () => ({ evaluate }), () => ({ apiKeySecretName: "synthetic-reference" }),
   );
   const sessions: TagApplyPreparationSession[] = [];
@@ -81,7 +83,7 @@ function harness() {
     },
   });
   return { a, b, files, vault, metadata, callbacks, listeners, emit, evaluate, evaluations, sessions, shown, outcomes,
-    command, showError, hide, mutation, switchTo: (target: TFile | null) => { active = target; } };
+    command, getApiKey, showError, hide, mutation, switchTo: (target: TFile | null) => { active = target; } };
 }
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -101,6 +103,34 @@ async function settledEvent(h: ReturnType<typeof harness>, body = "A", target = 
 }
 
 describe("explicit Tag Apply preparation lifecycle", () => {
+  it("refreshes advisory getters during presentation without recapturing legacy authorization or mutating", async () => {
+    const h = harness(); const apply = vi.spyOn(TagApplyService.prototype, "apply");
+    const run = h.command.execute(); await ready(h); await settledEvent(h);
+    h.evaluations[0].resolve(result); await run;
+    const session = h.sessions[0], legacy = session.state, grant = h.shown[0].suggestionGrant!;
+    expect(session.suggestionFreshness).toBe("matching");
+    h.switchTo(h.b); await settledEvent(h, "B", h.b);
+    expect(session.suggestionFreshness).toBe("matching");
+    await settledEvent(h, "PRIVATE_NEW_A_BODY");
+    expect(session.tagMetadataObservation?.source).toBe(h.outcomes[0].source);
+    expect(session.suggestionFreshness).toBe("changed");
+    expect(session.state).toBe(legacy); expect(h.shown[0].suggestionGrant).toBe(grant);
+    expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(true);
+    expect(h.shown[0]).not.toHaveProperty("tagMetadataObservation");
+    expect(h.shown[0]).not.toHaveProperty("suggestionFreshness");
+    expect(JSON.stringify(h.shown[0])).not.toContain("PRIVATE_NEW_A_BODY");
+    const pending = deferred<ArrayBuffer>();
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest").mockReturnValue(pending.promise);
+    h.emit();
+    expect(session.tagMetadataObservation).toBeUndefined(); expect(session.suggestionFreshness).toBe("unknown");
+    h.shown[0].dispose(); pending.resolve(new ArrayBuffer(32));
+    await pending.promise; await Promise.resolve(); await Promise.resolve();
+    expect(session.tagMetadataObservation).toBeUndefined(); expect(session.suggestionFreshness).toBe("unknown");
+    expect(h.evaluate).toHaveBeenCalledOnce(); expect(h.getApiKey).toHaveBeenCalledOnce();
+    expect(h.vault.read).toHaveBeenCalledOnce(); expect(h.metadata.getFileCache).not.toHaveBeenCalled();
+    expect(apply).not.toHaveBeenCalled(); expect(h.mutation).not.toHaveBeenCalled();
+    digest.mockRestore(); h.command.dispose();
+  });
   it("starts tracking before evaluation, captures before presentation, transfers until Close, and never mutates", async () => {
     const h = harness(); const apply = vi.spyOn(TagApplyService.prototype, "apply");
     expect(h.listeners.size).toBe(0);
@@ -109,6 +139,10 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     await ready(h); await settledEvent(h);
     h.evaluations[0].resolve(result); await run;
     expect(h.shown[0].applyPreparation.status).toBe("available");
+    expect(h.sessions[0].tagMetadataObservation?.source).toBe(h.outcomes[0].source);
+    expect(h.sessions[0].suggestionFreshness).toBe("matching");
+    expect(h.vault.read).toHaveBeenCalledOnce(); expect(h.getApiKey).toHaveBeenCalledOnce();
+    expect(h.metadata.getFileCache).not.toHaveBeenCalled();
     const grant = h.shown[0].suggestionGrant!;
     expect(grant.source).toBe(h.outcomes[0].source);
     expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(true);
@@ -116,6 +150,8 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     h.shown[0].dispose(); h.shown[0].dispose();
     expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(false);
     expect(h.sessions[0].state.status).toBe("unavailable");
+    expect(h.sessions[0].tagMetadataObservation).toBeUndefined();
+    expect(h.sessions[0].suggestionFreshness).toBe("unknown");
     expect(h.listeners.size).toBe(0); expect(h.metadata.offref).toHaveBeenCalledOnce();
     const digest = vi.spyOn(globalThis.crypto.subtle, "digest");
     h.emit(); h.callbacks[0](h.a, "A", {});
@@ -135,7 +171,16 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(true);
     if (scenario === "crypto-unavailable") expect(grant.evaluationProvenance).toBeUndefined();
     if (scenario === "no-proof") expect(h.shown[0].applyPreparation).toEqual({ status: "unavailable", reason: "freshness-unverified" });
-    if (scenario === "stale") expect(h.shown[0].applyPreparation).toEqual({ status: "unavailable", reason: "metadata-stale" });
+    if (scenario === "stale") {
+      expect(h.shown[0].applyPreparation).toEqual({ status: "unavailable", reason: "metadata-stale" });
+      expect(h.sessions[0].tagMetadataObservation).toBeDefined();
+      expect(h.sessions[0].suggestionFreshness).toBe("changed");
+    } else {
+      expect(h.sessions[0].tagMetadataObservation).toBeUndefined();
+      expect(h.sessions[0].suggestionFreshness).toBe("unknown");
+    }
+    expect(h.metadata.getFileCache).not.toHaveBeenCalled();
+    expect(h.evaluate).toHaveBeenCalledOnce(); expect(h.getApiKey).toHaveBeenCalledOnce();
     expect(h.showError).not.toHaveBeenCalled(); expect(h.mutation).not.toHaveBeenCalled(); h.command.dispose();
   });
   it("ignores another note and same-path replacement before hashing, keeping the original target on active switch", async () => {
@@ -146,6 +191,8 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     expect(digest).not.toHaveBeenCalled();
     h.evaluations[0].resolve(result); await run;
     expect(h.outcomes[0].source.matches(h.a)).toBe(true);
+    expect(h.sessions[0].tagMetadataObservation).toBeUndefined();
+    expect(h.sessions[0].suggestionFreshness).toBe("unknown");
     const grant = h.shown[0].suggestionGrant!;
     expect(grant.source).toBe(h.outcomes[0].source);
     expect(grant.source.matches(h.b)).toBe(false);
@@ -179,7 +226,9 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     expect(h.listeners.size).toBe(1);
     h.evaluations[1].resolve(result); await next;
     expect(h.shown[0].applyPreparation).toEqual({ status: "unavailable", reason: "freshness-unverified" });
-    expect(h.sessions[0].state.status).toBe("unavailable"); h.command.dispose();
+    expect(h.sessions[0].state.status).toBe("unavailable");
+    expect(h.sessions[0].tagMetadataObservation).toBeUndefined();
+    expect(h.sessions[0].suggestionFreshness).toBe("unknown"); h.command.dispose();
   });
   it.each(["failure", "unload"])("late digest cannot resurrect proof after %s", async (action) => {
     const h = harness(); const run = h.command.execute(); await ready(h);
@@ -205,7 +254,9 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     h.evaluations[1].resolve(result); await next;
     pending.resolve(new ArrayBuffer(32)); await pending.promise; await Promise.resolve();
     h.callbacks[1](h.a, "A", {}); expect(digest).toHaveBeenCalledOnce();
-    expect(h.sessions[1].state.status).toBe("unavailable"); expect(h.shown).toEqual([]);
+    expect(h.sessions[1].state.status).toBe("unavailable");
+    expect(h.sessions[1].tagMetadataObservation).toBeUndefined(); expect(h.sessions[1].suggestionFreshness).toBe("unknown");
+    expect(h.shown).toEqual([]);
     h.command.dispose();
   });
   it("Close invalidates a pending metadata fingerprint even after successful presentation", async () => {
@@ -216,6 +267,7 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     expect(h.listeners.size).toBe(1); h.shown[0].dispose();
     pending.resolve(new ArrayBuffer(32)); await pending.promise; await Promise.resolve();
     expect(h.listeners.size).toBe(0); expect(h.shown[0].applyPreparation.status).toBe("unavailable");
+    expect(h.sessions[0].tagMetadataObservation).toBeUndefined(); expect(h.sessions[0].suggestionFreshness).toBe("unknown");
     h.callbacks[0](h.a, "A", {}); expect(digest).toHaveBeenCalledOnce();
     h.command.dispose();
   });
@@ -225,6 +277,9 @@ describe("explicit Tag Apply preparation lifecycle", () => {
     await settledEvent(h);
     session.prepare({ status: "success", noteTitle: "A", source: new NoteSource(h.a), suggestions });
     expect(session.state).toEqual({ status: "unavailable", reason: "freshness-unverified" });
+    expect(session.tagMetadataObservation).toBeDefined(); expect(session.suggestionFreshness).toBe("unknown");
+    const grant = new TagSuggestionGrantIssuer(h.vault).issue({ status: "success", noteTitle: "A", source: new NoteSource(h.a), suggestions })!;
+    expect(isIssuedSuggestionGrant(grant.grant, h.vault)).toBe(true); grant.dispose();
     session.dispose();
   });
   it("disposes preparation for an application failure before Modal", async () => {

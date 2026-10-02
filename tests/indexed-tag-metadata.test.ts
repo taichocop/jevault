@@ -2,9 +2,10 @@ import { getAllTags, parseFrontMatterTags, type CachedMetadata, type EventRef, t
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { NoteSource } from "../src/note-source";
-import { captureEvaluationProvenance, fingerprintContent, sameContent, type EvaluationProvenance } from "../src/tags/evaluation-provenance";
+import { captureEvaluationProvenance, fingerprintContent, sameContent, type ContentProvenance, type EvaluationProvenance } from "../src/tags/evaluation-provenance";
 import { IndexedTagMetadataTracker } from "../src/tags/indexed-tag-metadata";
 import { TagApplyAuthorizationService } from "../src/tags/tag-apply-authorization";
+import { classifyTagSuggestionFreshness } from "../src/tags/tag-suggestion-freshness";
 import { TagApplyService } from "../src/tags/tag-apply-service";
 import { TFile as FakeFile } from "./helpers/obsidian-move";
 
@@ -79,11 +80,109 @@ describe("evaluation content provenance", () => {
 });
 
 describe("IndexedTagMetadataTracker", () => {
+  it("retains one event pair independently of evaluation, with frozen copies and opaque content", async () => {
+    const h = harness(); const outcome = await h.evaluate("A");
+    const body = "PRIVATE_SYNTHETIC_B_BODY";
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const names = ["#B"], fmNames = ["#frontmatterB"];
+      vi.mocked(parseFrontMatterTags).mockReturnValue(fmNames);
+      const cache = h.cache(names);
+      Object.assign(cache, { privateCacheMarker: "PRIVATE_CACHE", frontmatter: { tags: ["frontmatterB"] } });
+      h.emit(body, cache);
+      names.push("#late"); fmNames.push("#late");
+      await vi.waitFor(() => expect(h.tracker.observation(outcome.source)).toBeDefined());
+      const observation = h.tracker.observation(outcome.source)!;
+      expect(observation.source).toBe(outcome.source);
+      expect(observation.existingTags).toEqual(["#B"]);
+      expect(observation.frontmatterTags).toEqual(["#frontmatterB"]);
+      for (const value of [observation, observation.revision, observation.existingTags, observation.frontmatterTags, observation.content]) {
+        expect(Object.isFrozen(value)).toBe(true);
+      }
+      expect(() => (observation.existingTags as string[]).push("#forged")).toThrow(TypeError);
+      expect(() => (observation.frontmatterTags as string[]).push("#forged")).toThrow(TypeError);
+      expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, observation)).toBe("changed");
+      expect(classifyTagSuggestionFreshness(outcome.source, undefined, observation)).toBe("unknown");
+      expect(h.capture.capture(outcome)).toEqual({ status: "failure", reason: "metadata-stale" });
+      const bytes = await digest.mock.results[0].value;
+      const rawDigest = Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, "0")).join("");
+      for (const privateValue of [body, rawDigest, "PRIVATE_CACHE"]) {
+        expect(JSON.stringify(observation)).not.toContain(privateValue);
+      }
+      expect(JSON.stringify(observation.content)).toBe("{}");
+      expect(log).not.toHaveBeenCalled(); expect(error).not.toHaveBeenCalled();
+      expect(h.forbidden).not.toHaveBeenCalled(); expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
+    } finally { digest.mockRestore(); log.mockRestore(); error.mockRestore(); h.tracker.dispose(); }
+  });
+  it("ignores unrelated and replacement events before every expensive helper", () => {
+    const h = harness(); const source = new NoteSource(h.original);
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest");
+    try {
+      h.emit("B", h.cache(), file("Synthetic/B.md"));
+      const replacement = file(h.original.path); h.files.set(replacement.path, replacement);
+      h.emit("replacement", h.cache(), replacement);
+      h.emit("original after replacement", h.cache());
+      expect(digest).not.toHaveBeenCalled(); expect(getAllTags).not.toHaveBeenCalled();
+      expect(parseFrontMatterTags).not.toHaveBeenCalled(); expect(h.tracker.observation(source)).toBeUndefined();
+    } finally { digest.mockRestore(); h.tracker.dispose(); }
+  });
+  it.each(["rename", "move", "delete", "replacement", "non-md", "mtime", "size", "lookup-error"])(
+    "invalidates an established observation for %s", async change => {
+      const h = harness(); const outcome = await h.evaluate(); h.emit("OLD");
+      await vi.waitFor(() => expect(h.tracker.observation(outcome.source)).toBeDefined());
+      if (change === "rename" || change === "move") h.original.path = "Elsewhere/Renamed.md";
+      if (change === "delete") h.files.delete(h.original.path);
+      if (change === "replacement") h.files.set(h.original.path, file(h.original.path));
+      if (change === "non-md") h.original.extension = "txt";
+      if (change === "mtime" || change === "size") h.original.stat[change]++;
+      if (change === "lookup-error") h.vault.getFileByPath.mockImplementation(() => { throw new Error("PRIVATE_LOOKUP_ERROR"); });
+      expect(h.tracker.observation(outcome.source)).toBeUndefined();
+      expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, h.tracker.observation(outcome.source))).toBe("unknown");
+      h.tracker.dispose();
+    },
+  );
+  it("invalidates immediately while the new fingerprint is pending and never falls back after failure", async () => {
+    const h = harness(); const outcome = await h.evaluate(); h.emit("OLD");
+    await vi.waitFor(() => expect(h.tracker.observation(outcome.source)).toBeDefined());
+    let fail!: (error: unknown) => void;
+    const spy = vi.spyOn(globalThis.crypto.subtle, "digest").mockReturnValue(new Promise((_resolve, reject) => { fail = reject; }));
+    try {
+      h.emit("NEW");
+      expect(h.tracker.observation(outcome.source)).toBeUndefined();
+      expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, h.tracker.observation(outcome.source))).toBe("unknown");
+      fail(new Error("PRIVATE_DIGEST_FAILURE"));
+      await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+      expect(h.tracker.observation(outcome.source)).toBeUndefined();
+      expect(h.tracker.snapshot(outcome.source, outcome.evaluationProvenance)).toEqual({ status: "failure", reason: "freshness-unverified" });
+      expect(h.forbidden).not.toHaveBeenCalled();
+    } finally { spy.mockRestore(); h.tracker.dispose(); }
+  });
+  it("classifies missing, forged and differently associated provenance as unknown", async () => {
+    const h = harness(); const outcome = await h.evaluate();
+    expect(h.tracker.observation(outcome.source)).toBeUndefined();
+    expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, undefined)).toBe("unknown");
+    h.emit("OLD"); await vi.waitFor(() => expect(h.tracker.observation(outcome.source)).toBeDefined());
+    const observation = h.tracker.observation(outcome.source)!;
+    const otherSource = new NoteSource(h.original);
+    const otherProvenance = await captureEvaluationProvenance(otherSource, "OLD");
+    for (const provenance of [undefined, {} as EvaluationProvenance, otherProvenance]) {
+      expect(classifyTagSuggestionFreshness(outcome.source, provenance, observation)).toBe("unknown");
+    }
+    expect(classifyTagSuggestionFreshness(otherSource, otherProvenance, observation)).toBe("unknown");
+    expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, { ...observation, content: {} as ContentProvenance })).toBe("unknown");
+    h.tracker.dispose(); h.tracker.dispose();
+    expect(h.tracker.observation(outcome.source)).toBeUndefined(); expect(h.metadata.offref).toHaveBeenCalledOnce();
+  });
   it("requires an observed, matching event pair and never uses getFileCache", async () => {
     const h = harness(); const outcome = await h.evaluate();
     expect(h.capture.capture(outcome)).toEqual({ status: "failure", reason: "freshness-unverified" });
     const eventCache = h.emit("OLD", h.cache(["#aws"]));
     await vi.waitFor(() => expect(h.tracker.snapshot(outcome.source, outcome.evaluationProvenance).status).toBe("verified"));
+    const observation = h.tracker.observation(outcome.source)!;
+    expect(observation).toBeDefined();
+    expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, observation)).toBe("matching");
     const result = h.capture.capture(outcome);
     expect(result.status).toBe("captured");
     expect(getAllTags).toHaveBeenCalledExactlyOnceWith(eventCache);
@@ -117,6 +216,8 @@ describe("IndexedTagMetadataTracker", () => {
     const h = harness(); const outcome = await h.evaluate("OLD");
     h.emit("NEW");
     await vi.waitFor(() => expect(h.capture.capture(outcome)).toEqual({ status: "failure", reason: "metadata-stale" }));
+    expect(h.tracker.observation(outcome.source)).toBeDefined();
+    expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, h.tracker.observation(outcome.source))).toBe("changed");
   });
   it.each(["other", "replacement", "rename", "move"])("rejects event/source identity %s", async (change) => {
     const h = harness(); const outcome = await h.evaluate();
@@ -155,6 +256,8 @@ describe("IndexedTagMetadataTracker", () => {
       const captured = h.capture.capture(outcome);
       if (captured.status !== "captured") throw new Error("Synthetic capture failed");
       expect(captured.authorization.existingTags).toEqual(["#aws"]);
+      expect(h.tracker.observation(outcome.source)?.existingTags).toEqual(["#aws"]);
+      expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, h.tracker.observation(outcome.source))).toBe("matching");
     } finally { spy.mockRestore(); }
   });
   it("rejects a newer different-content proof even after that proof finishes", async () => {
