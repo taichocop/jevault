@@ -132,12 +132,14 @@ describe("IndexedTagMetadataTracker", () => {
     "invalidates an established observation for %s", async change => {
       const h = harness(); const outcome = await h.evaluate(); h.emit("OLD");
       await vi.waitFor(() => expect(h.tracker.observation(outcome.source)).toBeDefined());
+      const retained = h.tracker.observation(outcome.source)!;
       if (change === "rename" || change === "move") h.original.path = "Elsewhere/Renamed.md";
       if (change === "delete") h.files.delete(h.original.path);
       if (change === "replacement") h.files.set(h.original.path, file(h.original.path));
       if (change === "non-md") h.original.extension = "txt";
       if (change === "mtime" || change === "size") h.original.stat[change]++;
       if (change === "lookup-error") h.vault.getFileByPath.mockImplementation(() => { throw new Error("PRIVATE_LOOKUP_ERROR"); });
+      expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, retained)).toBe("unknown");
       expect(h.tracker.observation(outcome.source)).toBeUndefined();
       expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, h.tracker.observation(outcome.source))).toBe("unknown");
       h.tracker.dispose();
@@ -158,6 +160,39 @@ describe("IndexedTagMetadataTracker", () => {
       expect(h.tracker.snapshot(outcome.source, outcome.evaluationProvenance)).toEqual({ status: "failure", reason: "freshness-unverified" });
       expect(h.forbidden).not.toHaveBeenCalled();
     } finally { spy.mockRestore(); h.tracker.dispose(); }
+  });
+  it.each(["OLD", "NEW"])("expires retained %s observations across generations and disposal", async body => {
+    const h = harness(); const outcome = await h.evaluate("OLD"); h.emit(body);
+    await vi.waitFor(() => expect(h.tracker.observation(outcome.source)).toBeDefined());
+    const classify = (observation: ReturnType<typeof h.tracker.observation>) =>
+      classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, observation);
+    const old = h.tracker.observation(outcome.source)!;
+    expect(classify(old)).toBe(body === "OLD" ? "matching" : "changed");
+    const realDigest = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
+    const complete: (() => Promise<void>)[] = [];
+    const spy = vi.spyOn(globalThis.crypto.subtle, "digest").mockImplementation((algorithm, bytes) =>
+      new Promise<ArrayBuffer>(resolve => { complete.push(async () => resolve(await realDigest(algorithm, bytes))); }));
+    try {
+      h.emit("NEW", h.cache(["#new"]));
+      expect(classify(old)).toBe("unknown"); expect(h.tracker.observation(outcome.source)).toBeUndefined();
+      await complete[0]();
+      await vi.waitFor(() => expect(h.tracker.observation(outcome.source)).toBeDefined());
+      const newer = h.tracker.observation(outcome.source)!;
+      expect(classify(newer)).toBe("changed"); expect(classify(old)).toBe("unknown");
+      h.emit("OLD"); expect(classify(newer)).toBe("unknown");
+      h.tracker.dispose(); h.tracker.dispose();
+      await complete[1](); await Promise.resolve(); await Promise.resolve();
+      expect(classify(old)).toBe("unknown"); expect(classify(newer)).toBe("unknown");
+      expect(h.tracker.observation(outcome.source)).toBeUndefined(); expect(h.metadata.offref).toHaveBeenCalledOnce();
+    } finally { spy.mockRestore(); h.tracker.dispose(); }
+  });
+  it.each(["OLD", "NEW"])("disposal immediately expires a retained %s observation", async body => {
+    const h = harness(); const outcome = await h.evaluate("OLD"); h.emit(body);
+    await vi.waitFor(() => expect(h.tracker.observation(outcome.source)).toBeDefined());
+    const observation = h.tracker.observation(outcome.source)!;
+    expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, observation)).toBe(body === "OLD" ? "matching" : "changed");
+    h.tracker.dispose();
+    expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, observation)).toBe("unknown");
   });
   it("classifies missing, forged and differently associated provenance as unknown", async () => {
     const h = harness(); const outcome = await h.evaluate();
