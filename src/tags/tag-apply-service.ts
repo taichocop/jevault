@@ -1,13 +1,13 @@
 import { parseFrontMatterTags, type FileManager, type TFile } from "obsidian";
 
 import {
-  isIssuedAuthorization, resolveTagApplySource, sameTags,
-  type TagApplyAuthorization, type TagApplyFailureReason, type TagApplyMetadata, type TagApplyVault,
+  resolveTagApplySource, type TagApplyFailureReason, type TagApplyVault,
 } from "./tag-apply-authorization";
 import { isSameTagIdentity } from "./tag-identity";
+import { isIssuedSuggestionGrant, type TagSuggestionGrant } from "./tag-suggestion-grant";
 
 export interface TagApplyRequest {
-  readonly authorization: TagApplyAuthorization;
+  readonly grant: TagSuggestionGrant;
   readonly selectedTags: readonly string[];
 }
 
@@ -21,11 +21,10 @@ export type TagApplyResult =
 interface SourceLocks { paths: Set<string>; files: Set<TFile> }
 const locks = new WeakMap<TagApplyVault, SourceLocks>();
 
-/** UI・providerから独立した、選択済み既存Tagだけを追加する唯一のmutation境界。 */
+/** UI未接続のmutation境界。Grantは提案範囲であり、将来の明示確認を代替しない。 */
 export class TagApplyService {
   constructor(
     private readonly vault: TagApplyVault,
-    private readonly metadata: TagApplyMetadata,
     private readonly fileManager: Pick<FileManager, "processFrontMatter">,
   ) {}
 
@@ -36,90 +35,77 @@ export class TagApplyService {
     let lockedFile: TFile | undefined;
     let callbackFailure: TagApplyFailureReason | undefined;
     try {
-      const { authorization, selectedTags } = request;
-      if (!isIssuedAuthorization(authorization, this.vault) || !Array.isArray(selectedTags)) {
+      const { grant, selectedTags } = request;
+      if (!isIssuedSuggestionGrant(grant, this.vault) || !Array.isArray(selectedTags)) {
         return { status: "failure", reason: "invalid-selection" };
       }
-      const selected = [...new Set(selectedTags)];
-      if (selected.some((name) => !authorization.allowedTags.includes(name))) {
+      // 全selectionを完全一致で認可してからsemantic dedupeする。case同値で認可を広げない。
+      const selected = [...selectedTags];
+      if (selected.some((name) => typeof name !== "string" || !grant.allowedTags.includes(name))) {
         return { status: "failure", reason: "invalid-selection" };
+      }
+      const unique: string[] = [];
+      for (const name of selected) {
+        if (!unique.some((earlier) => isSameTagIdentity(earlier, name))) unique.push(name);
       }
       if (signal.aborted) return { status: "cancelled" };
-      if (selected.length === 0) return { status: "no-change" };
+      if (unique.length === 0) return { status: "no-change" };
       inFlight = locks.get(this.vault) ?? { paths: new Set<string>(), files: new Set<TFile>() };
       locks.set(this.vault, inFlight);
-      const path = authorization.source.path;
+      const path = grant.source.path;
       if (inFlight.paths.has(path)) return { status: "failure", reason: "busy" };
       inFlight.paths.add(path);
       lockedPath = path;
 
-      const file = resolveTagApplySource(this.vault, authorization.source);
+      const file = resolveTagApplySource(this.vault, grant.source);
       if (signal.aborted) return { status: "cancelled" };
       if (file === null) return { status: "failure", reason: "source-changed" };
       if (inFlight.files.has(file)) return { status: "failure", reason: "busy" };
       inFlight.files.add(file);
       lockedFile = file;
-      const revisionMatches = () => authorization.revision.mtime === file.stat.mtime &&
-        authorization.revision.size === file.stat.size;
-      const revisionValid = revisionMatches();
-      if (signal.aborted) return { status: "cancelled" };
-      if (!revisionValid) return { status: "failure", reason: "revision-changed" };
-      const tags = this.metadata.snapshot(authorization.source, authorization.evaluationProvenance);
-      if (signal.aborted) return { status: "cancelled" };
-      if (tags.status === "failure") return tags;
-      if (!sameTags(authorization.existingTags, tags.existingTags) ||
-        !sameTags(authorization.frontmatterTags, tags.frontmatterTags)) {
-        return { status: "failure", reason: "tag-state-changed" };
-      }
-      if (tags.proof !== authorization.metadataProof) return { status: "failure", reason: "metadata-stale" };
-      const additions: string[] = [];
-      for (const name of selected) {
-        // 認可は先に完全一致で検証済み。同一Applyでも最初に採用した表記だけを保持する。
-        if (!tags.existingTags.some((existing) => isSameTagIdentity(existing, name)) &&
-          !additions.some((addition) => isSameTagIdentity(addition, name))) {
-          additions.push(name);
-        }
-      }
-      if (signal.aborted) return { status: "cancelled" };
-      if (additions.length === 0) return { status: "no-change" };
 
-      // metadata境界でも状態が変わり得る。最終検証とAPI開始の間にawaitを置かない。
-      if (resolveTagApplySource(this.vault, authorization.source) !== file) {
+      // 最終検証とAPI開始の間にawaitを置かない。本文revisionやfreshnessはmutation条件にしない。
+      if (resolveTagApplySource(this.vault, grant.source) !== file) {
         return { status: "failure", reason: "source-changed" };
       }
-      if (!revisionMatches()) return { status: "failure", reason: "revision-changed" };
+      if (!isIssuedSuggestionGrant(grant, this.vault)) return { status: "failure", reason: "invalid-selection" };
       if (signal.aborted) return { status: "cancelled" };
+      let additions: string[] = [];
       await this.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
-        // API内部のread待ち中の変更も、書き換える前に拒否する。開始後のcancelはrollbackしない。
-        if (resolveTagApplySource(this.vault, authorization.source) !== file) callbackFailure = "source-changed";
-        else if (!revisionMatches()) callbackFailure = "revision-changed";
-        else if (!sameTags(authorization.frontmatterTags, parseFrontMatterTags(frontmatter) ?? [])) {
-          callbackFailure = "tag-state-changed";
-        }
-        if (!callbackFailure) {
-          const latest = this.metadata.snapshot(authorization.source, authorization.evaluationProvenance);
-          if (latest.status === "failure") callbackFailure = latest.reason;
-          else if (!sameTags(authorization.existingTags, latest.existingTags) ||
-            !sameTags(authorization.frontmatterTags, latest.frontmatterTags)) callbackFailure = "tag-state-changed";
-          else if (latest.proof !== authorization.metadataProof) callbackFailure = "metadata-stale";
-        }
+        // API内部のread待ち中のtarget変更・Grant失効もassignment前に拒否する。
+        if (resolveTagApplySource(this.vault, grant.source) !== file) callbackFailure = "source-changed";
+        else if (!isIssuedSuggestionGrant(grant, this.vault)) callbackFailure = "invalid-selection";
         if (callbackFailure) throw new Error("Tag apply validation failed");
         const existing = frontmatter.tags;
-        let preserved: unknown[];
+        let preserved: string[];
         if (existing === undefined) preserved = [];
-        else if (Array.isArray(existing)) preserved = [...existing];
-        else if (typeof existing === "string") {
+        else if (Array.isArray(existing)) {
+          // 不明な要素をTag無しと扱わない。対応するlistは既存表記・重複・順序をそのまま保持する。
+          preserved = [...existing];
+          if (preserved.some((name) => typeof name !== "string" || !/^#?[^#\s]+$/u.test(name))) {
+            throw new Error("Unsupported tags property");
+          }
+        } else if (typeof existing === "string") {
           // scalarの解釈は公式helperに委譲し、既存Tagを失う不明な値は書き換えない。
           const parsed = parseFrontMatterTags(frontmatter);
-          if (!parsed?.length) throw new Error("Unsupported tags property");
-          preserved = parsed.map((name) => name.startsWith("#") ? name.slice(1) : name);
+          if (!parsed?.length || parsed.some((name) => typeof name !== "string" || !/^#[^#\s]+$/u.test(name))) {
+            throw new Error("Unsupported tags property");
+          }
+          preserved = parsed.map((name) => name.slice(1));
         } else throw new Error("Unsupported tags property");
+        const currentTags = preserved.map((name) => name.startsWith("#") ? name : `#${name}`);
+        // callbackのcurrent frontmatterだけがstrict duplicate authority。inline観測はadvisory。
+        additions = unique.filter((name) => !currentTags.some((current) => isSameTagIdentity(current, name)));
+        if (additions.length === 0) return;
+        if (resolveTagApplySource(this.vault, grant.source) !== file) callbackFailure = "source-changed";
+        else if (!isIssuedSuggestionGrant(grant, this.vault)) callbackFailure = "invalid-selection";
+        if (callbackFailure) throw new Error("Tag apply validation failed");
         // 新規追加分だけ、公式YAML list表記へ変換する。case・階層・Unicodeは保持する。
         frontmatter.tags = [...preserved, ...additions.map((name) => name.slice(1))];
       });
-      return { status: "applied", addedTags: additions };
+      return additions.length === 0 ? { status: "no-change" } : { status: "applied", addedTags: additions };
     } catch {
-      // raw例外には本文・絶対path等が入り得るため公開しない。
+      // raw例外には本文・絶対path等が入り得るため公開しない。開始後のrollback・自動retryはしない。
       return { status: "failure", reason: callbackFailure ?? "unexpected" };
     } finally {
       if (lockedPath !== undefined) inFlight?.paths.delete(lockedPath);

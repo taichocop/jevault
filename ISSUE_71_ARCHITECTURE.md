@@ -1,5 +1,51 @@
 # Issue #71 — Manual Tag Apply responsibility separation
 
+## Issue #79 approved refinement and production migration
+
+[Issue #79](https://github.com/taichocop/jevault/issues/79) supersedes the
+inline/frontmatter duplicate requirement and evaluation-era mutation design
+below. The remaining sections record the original #71 architecture and its
+historical baseline; they are not the current Apply eligibility contract.
+
+- **Strict:** exact original NoteSource/TFile/path/Markdown identity; issued,
+  active, correct-Vault Suggestion Grant; every selected name is an exact
+  allowed member before ASCII semantic selected dedupe; current frontmatter
+  duplicate prevention and additive preservation; shared source locks and
+  pre-start cancellation.
+- **Advisory:** inline ↔ frontmatter duplicates, Tag Metadata Observation and
+  suggestion freshness (`matching / changed / unknown`). Missing/stale inline
+  evidence and same-source content edits do not independently block mutation.
+
+`TagApplyService(vault, fileManager).apply({ grant, selectedTags }, signal)`
+consumes the existing privately issued Grant. It resolves the original source,
+locks the Vault/path/TFile across instances and uses one synchronous
+`processFrontMatter` callback as current frontmatter duplicate/preservation
+authority. Current semantic equivalents prevent additions; selections keep
+first representation/order. Supported lists preserve every existing entry,
+including duplicate representations. Scalar interpretation remains delegated
+to `parseFrontMatterTags`; unsupported/ambiguous shapes fail before assignment.
+Only missing selected tags are appended. All-present selections return
+`no-change` without assigning tags after one callback; empty selections use
+zero mutation API calls. Obsidian owns serialization; textual YAML formatting
+and real editor/disk behavior are not newly certified by synthetic tests.
+
+Evaluation revision, EvaluationProvenance equality, legacy snapshot/tag sets
+and metadataProof are no longer Apply conditions. TagApplyAuthorization,
+its capture service, snapshot() and legacy preparation remain temporarily
+for readiness regression; Observation/Freshness and Grant issuance/lifetimes
+remain intact. The new core adds no provider/Secret/network/telemetry calls,
+body reads/logging, automatic retries, custom rollback or dependencies.
+
+[The #77 spike](ISSUE_77_TRANSACTION_SAFETY_SPIKE.md) remains historically
+correct: **NO SAFE GENERAL STRATEGY FOUND** under its prior strict inline plus
+frontmatter requirement. This migration is enabled by the later human product
+decision accepting inline duplicates as best effort/advisory, not by a newly
+found general inline transaction proof.
+
+Grant **is not confirmation**. Tag Suggest UI still has zero Apply reachability.
+#68 remains blocked pending a separately approved readiness / selected intent /
+explicit confirmation migration. This Issue does not implement that migration.
+
 ## Decision and authority
 
 AI suggestion correctness is **advisory**. Explicit user selection and
