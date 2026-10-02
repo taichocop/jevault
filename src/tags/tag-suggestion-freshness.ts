@@ -1,6 +1,6 @@
 import type { NoteSource } from "../note-source";
 import { evaluationContext, sameContent, type EvaluationProvenance } from "./evaluation-provenance";
-import type { TagMetadataObservation } from "./indexed-tag-metadata";
+import { isAcceptedTagMetadataObservation, type TagMetadataObservation } from "./indexed-tag-metadata";
 
 /** matchingもchanged/unknownもadvisoryのみ。mutation許可・失敗理由へ変換しない。 */
 export type TagSuggestionFreshness = "matching" | "changed" | "unknown";
@@ -12,7 +12,6 @@ export function classifyTagSuggestionFreshness(
   observation: TagMetadataObservation | undefined,
 ): TagSuggestionFreshness {
   const context = evaluationContext(provenance, source);
-  if (!context || !observation || observation.source !== source ||
-    !sameContent(observation.content, observation.content)) return "unknown";
+  if (!context || !observation || !isAcceptedTagMetadataObservation(observation, source)) return "unknown";
   return sameContent(context.content, observation.content) ? "matching" : "changed";
 }

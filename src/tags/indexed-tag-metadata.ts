@@ -21,6 +21,13 @@ export interface TagMetadataObservation {
   readonly frontmatterTags: readonly string[];
 }
 
+// 有効なcontent tokenの寄せ集めを、accepted event由来の観測値として比較しない。
+const acceptedObservations = new WeakSet<TagMetadataObservation>();
+
+export function isAcceptedTagMetadataObservation(observation: TagMetadataObservation, source: NoteSource): boolean {
+  return acceptedObservations.has(observation) && observation.source === source;
+}
+
 interface IndexedRecord {
   proof: object;
   source: NoteSource;
@@ -77,10 +84,12 @@ export class IndexedTagMetadataTracker implements VerifiedTagMetadataProvider {
       const record = this.records.get(file);
       if (!record?.content || !record.source.matches(file) ||
         record.revision.mtime !== file.stat.mtime || record.revision.size !== file.stat.size) return undefined;
-      return Object.freeze({
+      const observation: TagMetadataObservation = Object.freeze({
         source, revision: record.revision, content: record.content,
         existingTags: record.existingTags, frontmatterTags: record.frontmatterTags,
       });
+      acceptedObservations.add(observation);
+      return observation;
     } catch {
       // 読み取り境界の例外は公開せず、弱いstat/cache fallbackも作らない。
       return undefined;

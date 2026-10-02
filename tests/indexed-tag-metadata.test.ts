@@ -172,6 +172,18 @@ describe("IndexedTagMetadataTracker", () => {
     }
     expect(classifyTagSuggestionFreshness(otherSource, otherProvenance, observation)).toBe("unknown");
     expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, { ...observation, content: {} as ContentProvenance })).toBe("unknown");
+    // token自体は正規でも、copied/別sourceのdata/cache関連付けは証明できない。
+    for (const content of [observation.content, (await fingerprintContent("OLD"))!, (await fingerprintContent("NEW"))!]) {
+      expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, { ...observation, content })).toBe("unknown");
+      expect(classifyTagSuggestionFreshness(otherSource, otherProvenance, { ...observation, source: otherSource, content })).toBe("unknown");
+    }
+    const other = harness(); const otherOutcome = await other.evaluate(); other.emit("OLD");
+    await vi.waitFor(() => expect(other.tracker.observation(otherOutcome.source)).toBeDefined());
+    const otherObservation = other.tracker.observation(otherOutcome.source)!;
+    expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, otherObservation)).toBe("unknown");
+    expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, { ...observation, content: otherObservation.content })).toBe("unknown");
+    expect(classifyTagSuggestionFreshness(outcome.source, outcome.evaluationProvenance, observation)).toBe("matching");
+    other.tracker.dispose();
     h.tracker.dispose(); h.tracker.dispose();
     expect(h.tracker.observation(outcome.source)).toBeUndefined(); expect(h.metadata.offref).toHaveBeenCalledOnce();
   });
