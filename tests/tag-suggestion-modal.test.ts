@@ -60,7 +60,7 @@ import { isActiveConfirmedTagApplyIntent, TagApplyPreparationSession, type TagAp
 import { TagApplyService, type TagApplyResult } from "../src/tags/tag-apply-service";
 import type { ExistingTagSnapshot } from "../src/tags/existing-tag-snapshot";
 import type { TagSuggestionFreshness } from "../src/tags/tag-suggestion-freshness";
-import { TagSuggestionGrantIssuer } from "../src/tags/tag-suggestion-grant";
+import { isIssuedSuggestionGrant, TagSuggestionGrantIssuer } from "../src/tags/tag-suggestion-grant";
 import { TagSuggestionModal } from "../src/tags/tag-suggestion-modal";
 import type { TagSuggestionServiceResult } from "../src/tags/tag-suggestion-service";
 import { TFile as FakeFile } from "./helpers/obsidian-move";
@@ -119,8 +119,8 @@ function harness(options: { tags?: string[]; snapshot?: ExistingTagSnapshot; rea
     expect(confirm).not.toHaveBeenCalled(); expect(apply).not.toHaveBeenCalled();
     expect(fileManager.processFrontMatter).not.toHaveBeenCalled(); expect(forbidden).not.toHaveBeenCalled();
   };
-  const settle = async () => { await vi.waitFor(() => expect(button("Apply selected tags").disabled).toBe(false)); };
-  return { file, source, outcome, vault, session, preparation, getReadiness, confirm, dispose, frontmatter,
+  const settle = async () => { await vi.waitFor(() => expect(content.children.length === 0 || buttons().some(button => button.text === "Apply selected tags" && !button.disabled)).toBe(true)); };
+  return { file, source, outcome, vault, metadata, session, preparation, getReadiness, confirm, dispose, frontmatter,
     fileManager, service, apply, notify, owner, modal, content, scope, buttons, button, checkboxes, select,
     showConfirmation, add, assertNoApply, settle, forbidden, setFreshness: (value: TagSuggestionFreshness) => { freshness = value; } };
 }
@@ -146,7 +146,7 @@ describe("TagSuggestionModal manual selection", () => {
     h.showConfirmation(); h.assertNoApply(); h.add(); await h.settle();
     expect(h.confirm).toHaveBeenCalledExactlyOnceWith(["#programming/aws", "#aws"]);
     const request = h.apply.mock.calls[0][0];
-    expect(isActiveConfirmedTagApplyIntent(request.confirmation, h.vault)).toBe(true);
+    expect(isActiveConfirmedTagApplyIntent(request.confirmation, h.vault)).toBe(false);
     expect(request.confirmation.selectedTags).toEqual(["#programming/aws", "#aws"]);
     expect(request.confirmation.grant.source).toBe(h.source);
     expect(request).toEqual({ confirmation: h.confirm.mock.results[0].value }); h.modal.close();
@@ -253,7 +253,8 @@ describe("TagSuggestionModal explicit confirmation", () => {
     review.click(); const add = h.button("Add tags"); review.click(2); add.click(2); expect(h.confirm).not.toHaveBeenCalled();
     add.click(); add.click(); h.scope.press("Enter", { repeat: true }); h.scope.press("Enter"); oldInput.change(true); review.click();
     expect(h.confirm).toHaveBeenCalledExactlyOnceWith(["#aws"]); expect(h.apply).toHaveBeenCalledOnce(); expect(h.button("Add tags").disabled).toBe(true);
-    pending.resolve({ status: "no-change" }); await h.settle(); add.click(); expect(h.apply).toHaveBeenCalledOnce(); h.modal.close();
+    pending.resolve({ status: "no-change" }); await h.settle(); add.click(); expect(h.apply).toHaveBeenCalledOnce();
+    expect(h.notify).toHaveBeenCalledExactlyOnceWith("No tags needed to be added."); h.modal.close();
   });
 
   it("allows one deliberate Enter and ignores held, composing or modified Enter", async () => {
@@ -262,7 +263,8 @@ describe("TagSuggestionModal explicit confirmation", () => {
     for (const options of [{ repeat: true }, { isComposing: true }, { altKey: true }, { ctrlKey: true }, { metaKey: true }, { shiftKey: true }]) h.scope.press("Enter", options);
     h.assertNoApply(); h.scope.press("Enter"); h.scope.press("Enter", { repeat: true });
     expect(h.confirm).toHaveBeenCalledExactlyOnceWith(["#cloud"]); expect(h.apply).toHaveBeenCalledOnce();
-    pending.resolve({ status: "no-change" }); await h.settle(); h.modal.close();
+    pending.resolve({ status: "no-change" }); await h.settle(); h.scope.press("Enter");
+    expect(h.apply).toHaveBeenCalledOnce(); expect(h.notify).toHaveBeenCalledExactlyOnceWith("No tags needed to be added."); h.modal.close();
   });
 
   it("does not turn Enter on review or Cancel into Add tags", () => {
@@ -273,8 +275,61 @@ describe("TagSuggestionModal explicit confirmation", () => {
 
 describe("TagSuggestionModal Apply feedback and lifecycle", () => {
   it.each([
+    { result: { status: "applied", addedTags: ["#aws"] }, text: "Added 1 tag." },
     { result: { status: "applied", addedTags: ["#aws", "#cloud"] }, text: "Added 2 tags." },
     { result: { status: "no-change" }, text: "No tags needed to be added." },
+  ] as const)("waits for $result.status, closes and disposes before one $text Notice without returning to selection", async ({ result, text }) => {
+    const h = harness(); const pending = deferred<TagApplyResult>(); h.apply.mockReturnValue(pending.promise);
+    h.modal.open(); h.select(0);
+    const oldCheckbox = h.checkboxes()[1];
+    const grant = h.preparation.suggestionGrant!;
+    const oldConfirmation = h.session.confirm(["#aws"])!;
+    h.showConfirmation(); const add = h.button("Add tags");
+    const close = vi.spyOn(h.modal, "close");
+    const createEl = vi.spyOn(h.modal.contentEl, "createEl");
+    const order: string[] = [];
+    const onClose = h.modal.onClose.bind(h.modal);
+    vi.spyOn(h.modal, "onClose").mockImplementation(() => { order.push("close"); onClose(); });
+    h.dispose.mockImplementation(() => { order.push("dispose"); h.session.dispose(); });
+    h.notify.mockImplementation(() => {
+      expect(h.content.children).toEqual([]);
+      expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(false);
+      expect(h.metadata.offref).toHaveBeenCalledOnce();
+      order.push("notice");
+    });
+    add.click();
+    expect(close).not.toHaveBeenCalled(); expect(h.dispose).not.toHaveBeenCalled(); expect(h.notify).not.toHaveBeenCalled();
+    expect(isActiveConfirmedTagApplyIntent(h.apply.mock.calls[0][0].confirmation, h.vault)).toBe(true);
+    createEl.mockClear();
+    order.push("result"); pending.resolve(result); await h.settle();
+    expect(order).toEqual(["result", "close", "dispose", "notice"]);
+    expect(close).toHaveBeenCalledOnce(); expect(createEl).not.toHaveBeenCalled();
+    expect(h.notify).toHaveBeenCalledExactlyOnceWith(text); expect(h.dispose).toHaveBeenCalledOnce();
+    expect(isActiveConfirmedTagApplyIntent(oldConfirmation, h.vault)).toBe(false);
+    expect(isActiveConfirmedTagApplyIntent(h.apply.mock.calls[0][0].confirmation, h.vault)).toBe(false);
+    add.click(); oldCheckbox.change(true); h.scope.press("Enter"); h.owner.abort(); h.modal.close(); h.modal.open();
+    expect(h.apply).toHaveBeenCalledOnce(); expect(h.confirm).toHaveBeenCalledOnce(); expect(h.notify).toHaveBeenCalledOnce();
+    expect(h.dispose).toHaveBeenCalledOnce(); expect(h.metadata.offref).toHaveBeenCalledOnce();
+    expect(h.content.children).toEqual([]); expect(h.forbidden).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("guards a completed session while onClose is delayed; unload=%s suppresses its Notice", async unload => {
+    const h = harness(); h.modal.open(); h.select(0); h.showConfirmation();
+    const add = h.button("Add tags");
+    // mobileではpublic closeがanimation後にonCloseを呼ぶため、即時callbackを仮定しない。
+    const close = vi.spyOn(h.modal, "close").mockImplementation(() => {});
+    h.add(); await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
+    expect(h.dispose).not.toHaveBeenCalled(); expect(h.notify).not.toHaveBeenCalled();
+    h.button("Add tags").focus(); add.click(); h.scope.press("Enter");
+    expect(h.confirm).toHaveBeenCalledOnce(); expect(h.apply).toHaveBeenCalledOnce();
+    if (unload) h.owner.abort();
+    h.modal.onClose(); h.modal.onClose();
+    expect(h.dispose).toHaveBeenCalledOnce(); expect(h.content.children).toEqual([]);
+    if (unload) expect(h.notify).not.toHaveBeenCalled();
+    else expect(h.notify).toHaveBeenCalledExactlyOnceWith("No tags needed to be added.");
+  });
+
+  it.each([
     { result: { status: "failure", reason: "busy" }, text: "Tag changes are already being applied." },
     { result: { status: "failure", reason: "source-changed" }, text: "The original note is no longer available in the expected location." },
     { result: { status: "failure", reason: "invalid-confirmation" }, text: "This confirmation is no longer valid. Review the tags again." },
@@ -282,7 +337,9 @@ describe("TagSuggestionModal Apply feedback and lifecycle", () => {
     { result: { status: "failure", reason: "unexpected" }, text: "Jevault could not add the selected tags." },
   ] as const)("maps $result.status/$text to safe feedback without automatic retry", async ({ result, text }) => {
     const h = harness(); h.apply.mockResolvedValue(result); h.modal.open(); h.select(1); h.showConfirmation(); h.add(); await h.settle();
-    expect(h.notify).toHaveBeenCalledExactlyOnceWith(text); expect(h.apply).toHaveBeenCalledOnce(); expect(h.confirm).toHaveBeenCalledOnce(); h.modal.close();
+    expect(h.notify).toHaveBeenCalledExactlyOnceWith(text); expect(texts(h.content)).toContain(text);
+    expect(h.button("Apply selected tags")).toBeDefined(); expect(h.dispose).not.toHaveBeenCalled();
+    expect(h.apply).toHaveBeenCalledOnce(); expect(h.confirm).toHaveBeenCalledOnce(); h.modal.close();
   });
 
   it.each(["revision-changed", "tag-state-changed", "metadata-unavailable", "freshness-unverified", "metadata-stale"] as const)(
@@ -297,6 +354,19 @@ describe("TagSuggestionModal Apply feedback and lifecycle", () => {
     expect(h.notify).not.toHaveBeenCalled(); expect(h.apply).toHaveBeenCalledOnce(); h.modal.close();
   });
 
+  it("blocks Apply after original source replacement during the attempt without retry or retarget", async () => {
+    const h = harness({ realService: true }); h.modal.open(); h.select(0); h.showConfirmation();
+    h.apply.mockImplementation((request, signal) => {
+      h.vault.getFileByPath.mockReturnValue(new FakeFile(h.source.path) as TFile);
+      return h.service.apply(request, signal);
+    });
+    h.add();
+    await vi.waitFor(() => expect(texts(h.content)).toContain("The original note is no longer available in the expected location."));
+    expect(h.button("Apply selected tags").disabled).toBe(true); expect(h.dispose).not.toHaveBeenCalled();
+    expect(h.apply).toHaveBeenCalledOnce(); expect(h.fileManager.processFrontMatter).not.toHaveBeenCalled();
+    expect(h.forbidden).not.toHaveBeenCalled(); h.modal.close();
+  });
+
   it("catches raw rejection without leaking body, digest, absolute path, Secret or exception", async () => {
     const h = harness(); const raw = "PRIVATE_BODY PRIVATE_DIGEST /private/Synthetic.md SYNTHETIC_SECRET";
     h.apply.mockRejectedValue(new Error(raw)); const log = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -308,7 +378,8 @@ describe("TagSuggestionModal Apply feedback and lifecycle", () => {
   it("lets current frontmatter prevent a case-equivalent duplicate and reports normal no-change", async () => {
     const h = harness({ realService: true }); h.frontmatter.tags = ["AWS"]; h.modal.open(); h.select(0); h.showConfirmation(); h.add(); await h.settle();
     expect(h.fileManager.processFrontMatter).toHaveBeenCalledOnce(); expect(h.frontmatter.tags).toEqual(["AWS"]);
-    expect(h.notify).toHaveBeenCalledExactlyOnceWith("No tags needed to be added."); expect(h.forbidden).not.toHaveBeenCalled(); h.modal.close();
+    expect(h.notify).toHaveBeenCalledExactlyOnceWith("No tags needed to be added."); expect(h.content.children).toEqual([]);
+    expect(h.dispose).toHaveBeenCalledOnce(); expect(h.forbidden).not.toHaveBeenCalled(); h.modal.close();
   });
 
   it("uses the original Grant-bound file for Apply without consulting a switched active note", async () => {

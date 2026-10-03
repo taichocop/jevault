@@ -345,6 +345,8 @@ describe("Manual Tag Apply plugin integration", () => {
     const modal = currentModal();
     const grant = modal.preparation.suggestionGrant!;
     const confirm = vi.spyOn(modal.preparation, "confirm");
+    const dispose = vi.spyOn(modal.preparation, "dispose");
+    const close = vi.spyOn(modal, "close");
     expect(rendered(modal)).toContain("#aws — 96.0% — Already on note");
     expect(checkboxes(modal).map(input => input.checked)).toEqual([false]);
     expect(button(modal, "Apply selected tags").disabled).toBe(true);
@@ -369,8 +371,11 @@ describe("Manual Tag Apply plugin integration", () => {
     expect(h.processFrontMatter).toHaveBeenCalledExactlyOnceWith(h.original, expect.any(Function));
     expect(frontmatter).toEqual({ tags: ["existing", "aws"], title: "Synthetic title" });
     const notices = (Notice as unknown as { instances: Array<{ message: string }> }).instances;
-    expect(notices.map(notice => notice.message)).toContain("Added 1 tags.");
-    expect(button(modal, "Apply selected tags")).toBeDefined();
+    expect(notices.filter(notice => notice.message === "Added 1 tag.")).toHaveLength(1);
+    expect(close).toHaveBeenCalledOnce(); expect(modal.contentEl.children).toEqual([]);
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(isIssuedSuggestionGrant(grant, h.plugin.app.vault)).toBe(false);
+    expect(h.listeners.size).toBe(0); expect(h.offref).toHaveBeenCalledOnce();
     add.click(); await flush();
     expect(confirm).toHaveBeenCalledOnce(); expect(apply).toHaveBeenCalledOnce();
     expect(provider.evaluate).toHaveBeenCalledOnce(); expect(h.getSecret).toHaveBeenCalledOnce();
@@ -378,6 +383,7 @@ describe("Manual Tag Apply plugin integration", () => {
     expect(notices.map(notice => notice.message).join(" ")).not.toContain("Synthetic Markdown body");
     expect(notices.map(notice => notice.message).join(" ")).not.toContain("unit-test-only");
     modal.close(); h.plugin.onunload();
+    expect(dispose).toHaveBeenCalledOnce();
     expect(isIssuedSuggestionGrant(grant, h.plugin.app.vault)).toBe(false);
     expect(h.listeners.size).toBe(0);
   });
@@ -404,18 +410,25 @@ describe("Manual Tag Apply plugin integration", () => {
     const apply = vi.spyOn(TagApplyService.prototype, "apply");
     await h.plugin.onload(); await h.plugin.tagSuggestionCommand!.execute();
     const modal = currentModal();
+    const grant = modal.preparation.suggestionGrant!;
+    const dispose = vi.spyOn(modal.preparation, "dispose");
+    const close = vi.spyOn(modal, "close");
     checkboxes(modal)[0].change(true); button(modal, "Apply selected tags").click();
     button(modal, "Add tags").click(); await flush();
     expect(apply).toHaveBeenCalledOnce();
     expect(await apply.mock.results[0].value).toEqual({ status: "no-change" });
     expect(frontmatter).toEqual({ tags: ["AWS"], title: "Preserved" });
     expect(frontmatter.tags).toBe(tags);
-    expect((Notice as unknown as { instances: Array<{ message: string }> }).instances.map(notice => notice.message)).toContain("No tags needed to be added.");
+    expect((Notice as unknown as { instances: Array<{ message: string }> }).instances.filter(notice => notice.message === "No tags needed to be added.")).toHaveLength(1);
+    expect(close).toHaveBeenCalledOnce(); expect(modal.contentEl.children).toEqual([]);
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(isIssuedSuggestionGrant(grant, h.plugin.app.vault)).toBe(false);
+    expect(h.listeners.size).toBe(0); expect(h.offref).toHaveBeenCalledOnce();
     expect(provider.evaluate).toHaveBeenCalledOnce(); expect(h.getSecret).toHaveBeenCalledOnce();
     expect(h.forbidden).not.toHaveBeenCalled(); modal.close(); h.plugin.onunload();
   });
 
-  it.each(["close", "unload"] as const)("%s after processFrontMatter starts allows its actual result and defers authority disposal", async action => {
+  it.each(["close", "Escape", "unload"] as const)("%s after processFrontMatter starts allows its actual result and defers authority disposal", async action => {
     const h = harness();
     const frontmatter: Record<string, unknown> = { title: "Synthetic title" };
     let callback!: (frontmatter: Record<string, unknown>) => void;
@@ -433,7 +446,7 @@ describe("Manual Tag Apply plugin integration", () => {
     const add = button(modal, "Add tags"); add.click();
     expect(h.processFrontMatter).toHaveBeenCalledExactlyOnceWith(h.original, expect.any(Function));
     const noticeCount = (Notice as unknown as { instances: unknown[] }).instances.length;
-    if (action === "close") modal.close(); else h.plugin.onunload();
+    if (action === "close") modal.close(); else if (action === "Escape") modal.scope.press("Escape"); else h.plugin.onunload();
     expect(apply.mock.calls[0][1].aborted).toBe(true);
     expect(dispose).not.toHaveBeenCalled();
     expect(isIssuedSuggestionGrant(grant, h.plugin.app.vault)).toBe(true);

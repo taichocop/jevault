@@ -26,7 +26,7 @@ function freshnessMessage(freshness: TagSuggestionFreshness): string | undefined
 
 function applyMessage(result: TagApplyResult): string | undefined {
   switch (result.status) {
-    case "applied": return `Added ${result.addedTags.length} tags.`;
+    case "applied": return `Added ${result.addedTags.length} ${result.addedTags.length === 1 ? "tag" : "tags"}.`;
     case "no-change": return "No tags needed to be added.";
     case "cancelled": return undefined;
     case "failure":
@@ -51,6 +51,7 @@ export class TagSuggestionModal extends Modal {
   private addButton?: HTMLButtonElement;
   private readiness?: TagApplyReadiness;
   private feedback?: string;
+  private completionMessage?: string;
   private readonly closeFromOwner = (): void => this.close();
 
   constructor(
@@ -82,7 +83,7 @@ export class TagSuggestionModal extends Modal {
     this.render();
   }
 
-  private isActive(): boolean { return !this.closed && !this.ownerSignal.aborted; }
+  private isActive(): boolean { return !this.closed && !this.completionMessage && !this.ownerSignal.aborted; }
 
   private selectedTags(): string[] {
     return this.outcome.suggestions.filter((_suggestion, index) => this.selected.has(index)).map(({ tagName }) => tagName);
@@ -193,11 +194,17 @@ export class TagSuggestionModal extends Modal {
       this.pending = false;
       this.operation = undefined;
       if (this.isActive()) {
-        this.confirming = false;
         const message = result && applyMessage(result);
-        this.feedback = message ?? this.feedback;
-        this.render();
-        if (message && this.isActive()) this.notify(message);
+        if (result?.status === "applied" || result?.status === "no-change") {
+          // mobileのclose animation中も旧操作を拒否し、通知はonCloseの解放後に限定する。
+          this.completionMessage = message;
+          this.close();
+        } else {
+          this.confirming = false;
+          this.feedback = message ?? this.feedback;
+          this.render();
+          if (message && this.isActive()) this.notify(message);
+        }
       } else this.preparation.dispose();
     }
   }
@@ -210,5 +217,8 @@ export class TagSuggestionModal extends Modal {
     this.contentEl.empty();
     // API内部のcallback待ちで確認権限を失効させず、実際の結果を完了させてから解放する。
     if (!this.pending) this.preparation?.dispose();
+    const message = this.completionMessage;
+    this.completionMessage = undefined;
+    if (message && !this.ownerSignal.aborted) this.notify(message);
   }
 }
