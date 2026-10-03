@@ -21,17 +21,19 @@ This checklist applies to future releases. The existing 0.1.0 release was publis
 - [ ] `LICENSE` exists and contains the project-owner-selected MIT License.
 - [ ] `PRIVACY.md` has been reviewed.
 - [ ] `SECURITY.md` has been reviewed.
-- [ ] GitHub Private Vulnerability Reporting is enabled after the repository becomes public and before Community Plugin submission.
+- [ ] The owner confirms GitHub Private Vulnerability Reporting remains enabled for this public repository before Community Plugin submission.
 - [ ] The repository's **Security → Report a vulnerability** flow is visible after Private Vulnerability Reporting is enabled.
-- [ ] The TypeSafe data disclosure lists the note title, Vault-relative note path, full Markdown note body, and candidate folder paths.
+- [ ] The TypeSafe data disclosure lists the note title, Vault-relative note path, full Markdown note body, candidate folder paths for Folder Suggest, and existing Vault Tag candidate names and optional Tag candidate descriptions for Tag Suggest, consistent with `README.md` and `PRIVACY.md`.
 - [ ] `README.md` clearly discloses TypeSafe account, bring-your-own API key, network use, and payment/credit requirements.
 
 ## Safety and submission compliance
 
 - [ ] The plugin implements no telemetry, analytics, tracking, or crash reporting.
 - [ ] No secret values, tracked plaintext `.env` files, SecretStorage dumps, note-body logs, or full environment dumps are present.
-- [ ] The only intentional Vault mutation is an explicitly confirmed manual move through Obsidian; no automatic move or custom content rewrite exists.
-- [ ] Command IDs do not repeat the plugin ID; the classification command ID is `classify-current-note`.
+- [ ] Intentional Vault mutations are limited to explicitly confirmed manual moves and Manual Tag Apply through Obsidian APIs. Tag Apply requires selection of exact suggested existing Tags, explicit confirmation, the original `NoteSource`, and a single-use `ConfirmedTagApplyIntent`; only missing selected frontmatter Tags are added, preserving existing supported Tags and unrelated fields.
+- [ ] Current frontmatter semantic duplicates are strictly prevented; inline duplicates and **Already on note** are best effort/advisory. No automatic move, automatic Tag Apply, free-form/new Tag generation, or custom whole-note/body/link rewrite exists.
+- [ ] Manual Tag Apply makes no additional TypeSafe request or Secret lookup.
+- [ ] Command IDs do not repeat the plugin ID; they are `classify-current-note` and `suggest-tags-for-current-note`.
 - [ ] The repository contains no sample code, ads, self-update behavior, dynamic remote code, or dependency auto-install behavior.
 - [ ] Desktop-only metadata remains correct.
 
@@ -41,9 +43,10 @@ This checklist applies to future releases. The existing 0.1.0 release was publis
 - [ ] Enable the plugin without a runtime error.
 - [ ] Open Jevault Settings and confirm the secret selector is present.
 - [ ] Confirm the Command Palette contains **Jevault: Classify current note**.
+- [ ] Confirm the Command Palette contains **Jevault: Suggest tags for current note**.
 - [ ] Confirm a missing API key produces safe error UI without a network request.
 - [ ] Disable and re-enable the plugin without a runtime error.
-- [ ] Compare the fixture Vault before and after testing: only explicitly confirmed moves and Obsidian-managed link updates are allowed.
+- [ ] Compare the fixture Vault before and after testing: only explicitly confirmed manual moves, Manual Tag Apply frontmatter additions, and Obsidian-managed link updates are expected mutations.
 
 ## Manual move verification (isolated synthetic Vault only)
 
@@ -62,6 +65,24 @@ This checklist applies to future releases. The existing 0.1.0 release was publis
 - [ ] Manual selection/confirmation/move makes no new TypeSafe request.
 - [ ] Compare click and number-key flows; retain both for project-owner UX review.
 - [ ] Verify supported Obsidian collision behavior for on-disk conflicts and external changes around the API call.
+
+## Manual Tag Apply verification (isolated synthetic Vault only)
+
+- [ ] Suggestions display exact existing Tag names, match probabilities, and **Already on note** annotations when known. All suggestions start unchecked, including annotated Tags.
+- [ ] Selection alone causes zero mutations. No free-form/new Tag generation or automatic Tag Apply is available.
+- [ ] **Apply selected tags** opens confirmation showing the original Vault-relative note path and exact selected Tags; opening confirmation causes zero mutations.
+- [ ] Cancel / Esc / Close, or plugin unload, before Apply starts causes zero mutations and discards the result.
+- [ ] Explicit **Add tags** adds only missing selected suggested Tags using a core-issued, single-use confirmation for the original `NoteSource`.
+- [ ] Existing supported frontmatter Tags and unrelated fields are preserved; Tag removal, rename, and arbitrary frontmatter changes are unavailable.
+- [ ] A selected Tag already present in current frontmatter with equivalent ASCII case is not duplicated; when no additions remain, **No tags needed to be added** is a normal result. Inline duplicates remain best effort/advisory.
+- [ ] Switching the active note keeps the original note as the mutation target; the newly active note is unchanged.
+- [ ] Changed freshness displays a warning and still allows confirmation when the source and selection remain valid.
+- [ ] Unknown freshness displays a warning and still allows confirmation when the source and selection remain valid.
+- [ ] A moved, deleted, or replaced original source blocks Apply without retargeting or active-note fallback.
+- [ ] Repeated activation while pending starts only one attempt and produces no duplicate result; a consumed confirmation cannot be replayed.
+- [ ] Apply makes no additional TypeSafe request and no additional Secret lookup.
+- [ ] UI feedback and logs expose no raw note body, Secret, provider response, or exception.
+- [ ] Close/unload after the frontmatter API starts allows its actual result to settle without custom rollback, automatic retry, late notification, or stale UI revival.
 
 ## Release assets and publishing
 
