@@ -9,6 +9,7 @@ import {
   UnsupportedFileError,
   NoActiveNoteError,
 } from "../src/classification/classification-errors";
+import type { ExistingTagSnapshot } from "../src/tags/existing-tag-snapshot";
 import type { TagSuggestionServiceResult } from "../src/tags/tag-suggestion-service";
 import { TagSuggestionGrantIssuer, isIssuedSuggestionGrant, type TagSuggestionGrantLifetime } from "../src/tags/tag-suggestion-grant";
 import { ClassificationCancelledError } from "../src/classification/classification-cancellation";
@@ -38,7 +39,14 @@ function createCommand(
 ) {
   const hide = vi.fn();
   const showLoading = vi.fn(() => ({ hide }));
-  const showSuggestions = vi.fn();
+  const showSuggestions = vi.fn((
+    _outcome: TagSuggestionServiceResult,
+    _snapshot: ExistingTagSnapshot,
+    signal: AbortSignal,
+    presentation: TagApplyPreparedPresentation,
+  ) => {
+    signal.addEventListener("abort", () => presentation.dispose(), { once: true });
+  });
   const showError = vi.fn();
   const snapshot = vi.fn(() => ({ status: "available" as const, names: ["#aws"] }));
   const vault = { getFileByPath: vi.fn(() => null) };
@@ -372,6 +380,30 @@ describe("TagSuggestionCommand grant lifetime", () => {
     grants.forEach(grant => expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(false));
     pending.resolve(success); await run;
     expect(h.issue).toHaveBeenCalledTimes(2); expect(h.showSuggestions).toHaveBeenCalledTimes(2);
+  });
+  it("transfers disposal ownership so the UI can await an already-started Apply on unload", async () => {
+    const h = createCommand(async () => success);
+    const pendingApply = deferred<void>();
+    const closeUi = vi.fn();
+    let disposeAfterApply!: Promise<void>;
+    h.showSuggestions.mockImplementation((_outcome, _snapshot, signal, presentation) => {
+      signal.addEventListener("abort", () => {
+        closeUi();
+        disposeAfterApply = pendingApply.promise.then(() => presentation.dispose());
+      }, { once: true });
+    });
+    await h.command.execute();
+    const presentation = shownPresentation(h), grant = presentation.suggestionGrant!;
+    const dispose = vi.spyOn(presentation, "dispose");
+
+    h.command.dispose(); h.command.dispose();
+    expect(closeUi).toHaveBeenCalledOnce();
+    expect(dispose).not.toHaveBeenCalled();
+    expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(true);
+
+    pendingApply.resolve(); await disposeAfterApply;
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(isIssuedSuggestionGrant(grant, h.vault)).toBe(false);
   });
   it("explicit owner abort suppresses issuance even if the service completes late", async () => {
     const pending = deferred<TagSuggestionServiceResult>();

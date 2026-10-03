@@ -133,6 +133,8 @@ export class TagSuggestionCommand {
       }
       session.prepare(outcome, grantLifetime);
       transferred = this.showSuccessfulOutcome(outcome, preparation, operation.signal);
+      // Modalへ移譲後のunloadはowner signalに任せ、開始済みApplyのsessionを先に失効させない。
+      if (transferred) this.preparations.delete(preparation);
       return { status: "success" };
     } catch (error) {
       return operation.signal.aborted || error instanceof ClassificationCancelledError

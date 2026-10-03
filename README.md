@@ -1,6 +1,6 @@
 # Jevault
 
-Jevault is an Obsidian desktop plugin that suggests destination folders for Markdown notes from the folders that already exist in your vault. It also provides read-only suggestions from existing Vault tags (v0.3 Tag Suggest).
+Jevault is an Obsidian desktop plugin that suggests destination folders for Markdown notes from the folders that already exist in your vault. It also suggests existing Vault tags and lets you explicitly confirm adding selected tags to the original note's frontmatter.
 
 ```text
 Active Markdown note
@@ -50,18 +50,22 @@ If a retryable error is shown, selecting **Retry** explicitly starts another cla
 
 Manual move is local and sends no additional TypeSafe request. Once the Obsidian move API starts, closing the modal cannot abort it; Jevault reports its result and performs no automatic rollback. Obsidian may update links according to your settings. Jevault does not rewrite note content or frontmatter itself.
 
-### Read-only Tag Suggest
+### Tag Suggest and Manual Tag Apply
 
 1. Open a Markdown note.
 2. Open the Command Palette.
 3. Run **Jevault: Suggest tags for current note**.
 4. Wait for evaluation to finish.
 5. Review suggested existing tags, match probabilities, and **Already on note** annotations.
-6. Select **Close**, press **Esc**, or close the modal.
+6. Select the tags to add. All suggestions start unchecked, including tags marked **Already on note**. Selection alone changes nothing.
+7. Select **Apply selected tags**, then review the original Vault-relative note path and exact selected tags. Opening this confirmation changes nothing.
+8. Select **Add tags** to confirm, or **Cancel** to close and discard this result. You can also press **Esc** or close the modal to stop before Apply starts. To confirm with the keyboard, use **Tab** to focus **Add tags**, then press **Enter**.
 
 Already-on-note tags remain in the suggestions. No matching suggestions is a normal empty result; no existing Vault tag candidates is a separate error. If the evaluated note's metadata is unavailable or its file identity has changed, existing-tag state is shown as unknown. Switching active notes does not change the note used for the annotation. A retryable error offers **Retry**, which starts a new request only when clicked. Closing the error modal cancels a pending Retry.
 
-Tag Suggest is read-only: no manual apply yet, no automatic Tag mutation, and no free-form/new Tag generation. Only existing Vault tags are candidates. Opening or closing the result modal makes no request and changes no note, tag, or frontmatter.
+Freshness warnings explain when suggestions may be based on changed or unknown note content; they still allow confirmation. If the original note or suggestions are no longer available, Apply is blocked. **Already on note** is advisory, including inline tags. Apply prevents equivalent tags already in the current frontmatter from being added again; **No tags needed to be added** is a normal result.
+
+Manual Tag Apply is local and makes no provider request or Secret lookup. It adds only selected suggested tags through Obsidian's frontmatter API, preserving existing supported tags and unrelated fields. Once that API starts, closing or unloading the modal cannot undo the operation; it completes without automatic retry or rollback, and closed UI receives no late notification. There is no automatic Tag mutation, free-form/new Tag generation, or **Analyze again** action. Opening, selecting, and reviewing confirmation alone change no note.
 
 ## Privacy and external services
 
@@ -81,10 +85,10 @@ See [PRIVACY.md](PRIVACY.md) for details and the [TypeSafe privacy policy](https
 
 - Desktop only
 - Manual moves require selection and explicit confirmation; no automatic or bulk moves
-- No filename changes, folder creation, deletion, tag changes, or custom content/frontmatter/link rewriting
+- No filename changes, folder creation, deletion, tag removal/rename, or custom whole-note/link rewriting
 - Obsidian manages standard link updates according to your preferences
 - Can only suggest existing, non-excluded Vault folders
-- Tag Suggest uses existing Vault tags only; no manual apply, automatic Tag mutation, or free-form/new Tag generation
+- Tag Suggest uses existing Vault tags only; Manual Tag Apply requires selection and explicit confirmation, with no automatic Tag mutation or free-form/new Tag generation
 - Depends on TypeSafe API availability
 
 ## Manual installation
