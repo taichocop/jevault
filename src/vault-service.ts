@@ -15,7 +15,7 @@ export function normalizeVaultPath(path: string): string {
   return normalizedPath.trim().length === 0 ? "" : normalizedPath;
 }
 
-function isExcludedPath(
+export function isExcludedPath(
   candidatePath: string,
   excludedPaths: readonly string[],
 ): boolean {
