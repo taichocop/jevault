@@ -5,7 +5,7 @@ import {
   NoCandidatesError,
   UnsupportedFileError,
 } from "../classification/classification-errors";
-import type { NoteService } from "../note-service";
+import type { NoteService, NoteState } from "../note-service";
 import type { NoteSource } from "../note-source";
 import type { SecretService } from "../secret-service";
 import type { JevaultSettings } from "../settings";
@@ -44,9 +44,19 @@ export class TagSuggestionService {
     if (noteState.status === "no-active-file") throw new NoActiveNoteError();
     if (noteState.status === "unsupported-file") throw new UnsupportedFileError();
 
+    return this.suggestForNote(noteState.note, noteState.source, signal);
+  }
+
+  /** 読取済みNoteとそのsourceを保持し、active Noteへ切り替えず評価する。 */
+  async suggestForNote(
+    note: Readonly<NoteState>,
+    source: NoteSource,
+    signal?: AbortSignal,
+  ): Promise<TagSuggestionServiceResult> {
+    throwIfCancelled(signal);
     // fingerprint待機中も評価本文を差し替えられないよう、実際にproviderへ渡す入力を固定する。
-    const evaluatedNote = Object.freeze({ ...noteState.note });
-    const evaluationProvenance = await captureEvaluationProvenance(noteState.source, evaluatedNote.body);
+    const evaluatedNote = Object.freeze({ ...note });
+    const evaluationProvenance = await captureEvaluationProvenance(source, evaluatedNote.body);
     throwIfCancelled(signal);
 
     const candidates = this.tagDiscovery.discover();
@@ -77,8 +87,8 @@ export class TagSuggestionService {
     // 本文・Secret・providerの生応答を含めず、開始時のNoteSourceをそのまま返す。
     return {
       status: "success",
-      noteTitle: noteState.note.title,
-      source: noteState.source,
+      noteTitle: note.title,
+      source,
       suggestions,
       ...(evaluationProvenance === undefined ? {} : { evaluationProvenance }),
     };

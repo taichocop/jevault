@@ -4,6 +4,9 @@ import { describe, expect, it, vi } from "vitest";
 import { CandidateBuilder } from "../src/classification/candidate-builder";
 import {
   MissingApiKeyError,
+  NetworkError,
+  TypeSafeApiError,
+  InvalidTypeSafeResponseError,
   NoActiveNoteError,
   NoCandidatesError,
   UnsupportedFileError,
@@ -15,6 +18,10 @@ import {
 import type { Classifier } from "../src/classification/classifier";
 import type { NoteStateResult } from "../src/note-service";
 import type { JevaultSettings } from "../src/settings";
+import { ClassificationCancelledError } from "../src/classification/classification-cancellation";
+import { TypeSafeAdapter } from "../src/classification/typesafe-adapter";
+import { VaultService } from "../src/vault-service";
+import type { TFolder } from "obsidian";
 
 const settings: JevaultSettings = {
   apiKeySecretName: "typesafe-api-key",
@@ -53,10 +60,9 @@ function createService(options: {
   const getApiKey = vi.fn(() =>
     options.apiKey === undefined ? "unit-test-api-key" : options.apiKey,
   );
+  const getActiveNoteState = vi.fn(async () => options.noteState ?? readyNote);
   const service = new ClassificationService(
-    {
-      getActiveNoteState: vi.fn(async () => options.noteState ?? readyNote),
-    },
+    { getActiveNoteState },
     {
       getAvailableFolderPaths: vi.fn(() =>
         options.folderPaths ?? [
@@ -75,7 +81,7 @@ function createService(options: {
     }),
   );
 
-  return { classify, classifierFactory, getApiKey, service };
+  return { classify, classifierFactory, getApiKey, getActiveNoteState, service };
 }
 
 describe("ClassificationService", () => {
@@ -221,4 +227,87 @@ describe("ClassificationService", () => {
       expect(classifierFactory).not.toHaveBeenCalled();
       expect(classify).not.toHaveBeenCalled();
     });
+});
+
+describe("ClassificationService prepared-note entry", () => {
+  it("uses the supplied note/source, preserving ordering, truncation and safe output", async () => {
+    const h = createService({ noteState: { status: "no-active-file" }, suggestionCount: 2 });
+    const note = Object.freeze({ title: "Exact target", path: "Inbox/Exact.md", body: "Synthetic prepared body" });
+    const source = fixtureSource(note.path);
+    const signal = new AbortController().signal;
+    const result = await h.service.classifyNote(note, source, signal);
+    expect(result).toEqual({ status: "success", noteTitle: note.title, source, result: {
+      candidates: [{ path: "programming/aws", probability: 0.85 }, { path: "programming/ruby", probability: 0.1 }], providerConfidence: 0.77,
+    } });
+    expect(h.classify.mock.calls[0]).toEqual([note, [
+      { path: "programming/aws", description: "Existing vault folder: programming/aws" },
+      { path: "programming/ruby", description: "Existing vault folder: programming/ruby" },
+      { path: "health/fitness", description: "Existing vault folder: health/fitness" },
+    ], signal]);
+    expect(JSON.stringify(result)).not.toContain(note.body);
+    expect(JSON.stringify(result)).not.toContain("unit-test-api-key");
+    expect(Object.keys(result).sort()).toEqual(["noteTitle", "result", "source", "status"]);
+    expect(h.getActiveNoteState).not.toHaveBeenCalled();
+  });
+
+  it("rejects absent candidates before Secret lookup", async () => {
+    const h = createService({ folderPaths: [] });
+    await expect(h.service.classifyNote(readyNote.note, readyNote.source)).rejects.toBeInstanceOf(NoCandidatesError);
+    expect(h.getApiKey).not.toHaveBeenCalled(); expect(h.classifierFactory).not.toHaveBeenCalled();
+  });
+
+  it.each([null, "", "   "])("rejects missing Secret %j without provider", async apiKey => {
+    const h = createService({ apiKey });
+    await expect(h.service.classifyNote(readyNote.note, readyNote.source)).rejects.toBeInstanceOf(MissingApiKeyError);
+    expect(h.classifierFactory).not.toHaveBeenCalled(); expect(h.classify).not.toHaveBeenCalled();
+  });
+
+  it("uses unchanged VaultService exclusions and CandidateBuilder descriptions", async () => {
+    const classify = vi.fn<Classifier["classify"]>(async (_note, candidates) => ({ candidates: candidates.map(({ path }) => ({ path, probability: 1 })) }));
+    const vault = { configDir: ".obsidian", getAllFolders: vi.fn(() =>
+      [".obsidian", ".obsidian/Plugins", "Inbox", "Inbox/Nested", "Templates", "Templates/Nested", "InboxArchive", "健康/運動"]
+        .map(path => ({ path }) as TFolder)) };
+    const active = vi.fn(async () => readyNote);
+    const service = new ClassificationService({ getActiveNoteState: active }, new VaultService(vault),
+      new CandidateBuilder(), { getApiKey: () => "unit-test-only" }, () => ({ classify }), () => settings);
+    await service.classifyNote(readyNote.note, readyNote.source);
+    expect(classify.mock.calls[0][1]).toEqual([
+      { path: "InboxArchive", description: "Existing vault folder: InboxArchive" },
+      { path: "健康/運動", description: "Existing vault folder: 健康/運動" },
+    ]);
+    expect(active).not.toHaveBeenCalled(); expect(vault.getAllFolders).toHaveBeenCalledWith(false);
+  });
+
+  it.each([NetworkError, TypeSafeApiError, InvalidTypeSafeResponseError, ClassificationCancelledError])(
+    "preserves typed classifier failure %s", async ErrorType => {
+      const error = new ErrorType(); const classify = vi.fn<Classifier["classify"]>().mockRejectedValue(error);
+      const h = createService({ classifier: { classify } });
+      await expect(h.service.classifyNote(readyNote.note, readyNote.source)).rejects.toBe(error);
+    },
+  );
+
+  it.each(["pre-abort", "secret", "provider"])("preserves cancellation at %s", async stage => {
+    const controller = new AbortController();
+    const h = createService();
+    if (stage === "pre-abort") controller.abort();
+    if (stage === "secret") h.getApiKey.mockImplementation(() => { controller.abort(); return "unit-test-only"; });
+    if (stage === "provider") h.classify.mockImplementation(async () => { controller.abort(); return { candidates: [], providerConfidence: 0 }; });
+    await expect(h.service.classifyNote(readyNote.note, readyNote.source, controller.signal)).rejects.toBeInstanceOf(ClassificationCancelledError);
+    if (stage === "pre-abort") expect(h.getApiKey).not.toHaveBeenCalled();
+    if (stage !== "provider") expect(h.classify).not.toHaveBeenCalled();
+    expect(h.getActiveNoteState).not.toHaveBeenCalled();
+  });
+
+  it.each(["__other__", "unknown", "missing", "invalid-probability"])(
+    "retains strict/no-match response rejection: %s", async kind => {
+      const probabilities: Record<string, unknown> = { "programming/aws": 0.8, "programming/ruby": 0.1, "health/fitness": 0.1 };
+      if (kind === "missing") delete probabilities["health/fitness"];
+      if (kind === "invalid-probability") probabilities["health/fitness"] = NaN;
+      const execute = vi.fn(async () => ({ answers: { destination: { type: "choice",
+        choice: kind === "__other__" ? "__other__" : kind === "unknown" ? "Unknown" : "programming/aws", probabilities } } }));
+      const h = createService({ classifier: new TypeSafeAdapter("unit-test-only", execute) });
+      await expect(h.service.classifyNote(readyNote.note, readyNote.source)).rejects.toBeInstanceOf(InvalidTypeSafeResponseError);
+      expect(execute).toHaveBeenCalledOnce();
+    },
+  );
 });
