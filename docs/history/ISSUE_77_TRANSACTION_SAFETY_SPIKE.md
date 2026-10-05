@@ -40,9 +40,9 @@ closed/completed with #72/#74/#76/#65/#67 merged. #69 is closed/not_planned;
 HTTP 401; public REST provided the authoritative Issue and related state, and
 the connected GitHub plugin returned repository access successfully.
 
-Read [AGENTS](AGENTS.md), [LOOP](agent/LOOP.md), [REVIEW](agent/REVIEW.md),
-[STOP](agent/STOP_CONDITIONS.md), [PR loop](agent/PR_REVIEW_LOOP.md),
-[the #71 architecture](ISSUE_71_ARCHITECTURE.md), [the #64 spike](ISSUE_64_SPIKE.md),
+Read [AGENTS](../../AGENTS.md), [LOOP](../../agent/LOOP.md), [REVIEW](../../agent/REVIEW.md),
+[STOP](../../agent/STOP_CONDITIONS.md), [PR loop](../../agent/PR_REVIEW_LOOP.md),
+[the #71 architecture](../architecture/ISSUE_71_ARCHITECTURE.md), [the #64 spike](ISSUE_64_SPIKE.md),
 the requested metadata/grant/freshness/preparation/authorization/Apply/identity,
 NoteSource/main boundaries, and their requested tests/helpers. There is no
 `docs/` directory. Predecessor reports' runtime observations are historical
@@ -256,8 +256,8 @@ Issue after a safety/coverage decision; it is not hidden inside this spike.
 
 ## Synthetic evidence
 
-[New tests](tests/tag-transaction-safety-spike.test.ts) and
-[test-only helper](tests/helpers/tag-transaction-safety-spike.ts) use fakes and
+[New tests](../../tests/tag-transaction-safety-spike.test.ts) and
+[test-only helper](../../tests/helpers/tag-transaction-safety-spike.ts) use fakes and
 synthetic fixtures. API types are public Obsidian types; runtime helper
 getFrontMatterInfo outputs are explicit fakes, never a custom YAML/Markdown
 parser. Tests use promises to control interleavings; no timing/polling cure.

@@ -14,6 +14,12 @@ Prioritize: user data safety, privacy, correctness, simplicity, testability, the
 - Implement only the active Issue; do not add roadmap features.
 - Approved Issue execution follows [agent/LOOP.md](agent/LOOP.md), read-only review follows [agent/REVIEW.md](agent/REVIEW.md), and mandatory stops follow [agent/STOP_CONDITIONS.md](agent/STOP_CONDITIONS.md).
 
+## Issue-specific documentation
+
+- Ordinary feature Issues use the GitHub Issue and PR as the authoritative record; do not create root-level `ISSUE_*.md` by default.
+- Put long-lived architecture decisions in `docs/architecture/` and historical research, safety spikes, or durable verification evidence in `docs/history/`.
+- Keep transient implementation and verification notes in the GitHub Issue or PR body by default. When a dedicated Markdown record is needed, choose its location explicitly rather than adding it to the repository root.
+
 ## Safety and architecture
 
 - Unless explicitly required by the Issue, never move, rename, modify, or delete notes; create folders; edit frontmatter; add tags/links; run background work; or add telemetry.
