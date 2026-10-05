@@ -59,7 +59,7 @@ for readiness regression; Observation/Freshness and Grant issuance/lifetimes
 remain intact. The new core adds no provider/Secret/network/telemetry calls,
 body reads/logging, automatic retries, custom rollback or dependencies.
 
-[The #77 spike](ISSUE_77_TRANSACTION_SAFETY_SPIKE.md) remains historically
+[The #77 spike](../history/ISSUE_77_TRANSACTION_SAFETY_SPIKE.md) remains historically
 correct: **NO SAFE GENERAL STRATEGY FOUND** under its prior strict inline plus
 frontmatter requirement. This migration is enabled by the later human product
 decision accepting inline duplicates as best effort/advisory, not by a newly
@@ -104,10 +104,10 @@ Authoritative inputs checked on 2026-10-02 JST:
   [PR #67](https://github.com/taichocop/jevault/pull/67): Issues closed/completed,
   PRs merged. #67's final approved selected-vs-selected duplicate prevention is
   retained, including its human-approved disposition of the contrary review.
-- [AGENTS](AGENTS.md), [LOOP](agent/LOOP.md), [REVIEW](agent/REVIEW.md),
-  [STOP](agent/STOP_CONDITIONS.md), [PR review loop](agent/PR_REVIEW_LOOP.md),
-  [Issue #64 report](ISSUE_64_SPIKE.md), relevant
-  [README](README.md#read-only-tag-suggest) / [PRIVACY](PRIVACY.md), and current
+- [AGENTS](../../AGENTS.md), [LOOP](../../agent/LOOP.md), [REVIEW](../../agent/REVIEW.md),
+  [STOP](../../agent/STOP_CONDITIONS.md), [PR review loop](../../agent/PR_REVIEW_LOOP.md),
+  [Issue #64 report](../history/ISSUE_64_SPIKE.md), relevant
+  [README](../../README.md#tag-suggest-and-manual-tag-apply) / [PRIVACY](../../PRIVACY.md), and current
   production boundaries below. There is no `docs/` tree. The root-level
   `ISSUE_64_SPIKE.md` convention determines this record's location/name.
 
@@ -119,14 +119,14 @@ when a later implementation actually changes runtime contracts.
 
 ## Current production responsibility inventory
 
-The [suggestion service](src/tags/tag-suggestion-service.ts) freezes the actual
+The [suggestion service](../../src/tags/tag-suggestion-service.ts) freezes the actual
 provider input, captures opaque evaluation provenance before evaluation, and
-returns exact suggested names. The [command](src/tags/tag-suggestion-command.ts)
+returns exact suggested names. The [command](../../src/tags/tag-suggestion-command.ts)
 starts preparation before evaluation, prepares once after success, and
 transfers session ownership to the read-only
-[modal](src/tags/tag-suggestion-modal.ts). Failure/cancel disposes immediately;
+[modal](../../src/tags/tag-suggestion-modal.ts). Failure/cancel disposes immediately;
 Close/Retry/unload disposes the old session; late work cannot restore it.
-[main.ts](src/main.ts) wires dependencies and lifecycle only. Apply is not wired
+[main.ts](../../src/main.ts) wires dependencies and lifecycle only. Apply is not wired
 to the user flow. Existing-tag display annotations are not mutation evidence.
 
 | Current check | Current purpose | New architecture role | Keep / move / remove later |
@@ -142,10 +142,10 @@ to the user flow. Existing-tag display annotations are not mutation evidence.
 | Callback frontmatter validation | Current parsed tags match authorization; unsupported property rejects | Current transaction representation/preservation and candidate consistency | Keep and bind to current mutation evidence; not suggestion freshness |
 | Shared Vault/path/TFile lock; abort checks | Same-source applies cannot overlap; pre-start abort has 0 mutation calls | Mutation execution safety, independent of grant/freshness | Keep across instances and all future strategies; release in finally |
 
-[Authorization capture](src/tags/tag-apply-authorization.ts) currently validates
+[Authorization capture](../../src/tags/tag-apply-authorization.ts) currently validates
 evaluation revision, calls evaluation-bound metadata `snapshot`, copies/freeze
 allowed/existing/frontmatter tags, and registers authorization in a Vault-bound
-WeakMap. [Tracker](src/tags/indexed-tag-metadata.ts) already records latest
+WeakMap. [Tracker](../../src/tags/indexed-tag-metadata.ts) already records latest
 target event data independently; its **snapshot acceptance** is evaluation-bound.
 It also captures stat at event receipt, rejects changed stat and stale async
 completion, and clears records on disposal. Neither event receipt stat nor
@@ -335,7 +335,7 @@ it must not promise that all same-source stale notes become applyable.
 
 ## Frontmatter mutation contract
 
-Current [TagApplyService](src/tags/tag-apply-service.ts) re-resolves source and
+Current [TagApplyService](../../src/tags/tag-apply-service.ts) re-resolves source and
 revision before API start and in the callback, compares callback parsed tags,
 then revalidates metadata tag sets/proof before assigning only `frontmatter.tags`.
 Absent tags append a list; array entries are copied verbatim; scalar parsing

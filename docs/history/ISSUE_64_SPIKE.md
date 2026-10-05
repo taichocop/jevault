@@ -49,9 +49,9 @@ Read [Issue #64](https://github.com/taichocop/jevault/issues/64),
 [Issue #60](https://github.com/taichocop/jevault/issues/60),
 [Issue #62](https://github.com/taichocop/jevault/issues/62),
 [PR #61](https://github.com/taichocop/jevault/pull/61), and
-[PR #63](https://github.com/taichocop/jevault/pull/63), plus [AGENTS.md](AGENTS.md),
-[LOOP](agent/LOOP.md), [STOP](agent/STOP_CONDITIONS.md),
-[REVIEW](agent/REVIEW.md), and [PR review loop](agent/PR_REVIEW_LOOP.md).
+[PR #63](https://github.com/taichocop/jevault/pull/63), plus [AGENTS.md](../../AGENTS.md),
+[LOOP](../../agent/LOOP.md), [STOP](../../agent/STOP_CONDITIONS.md),
+[REVIEW](../../agent/REVIEW.md), and [PR review loop](../../agent/PR_REVIEW_LOOP.md).
 There is no local `docs/` tree at this baseline. Requirements used here are the
 active Issue, relevant predecessor Issues, README's read-only Tag Suggest
 section, PRIVACY's operation-scoped fingerprints, and current code/tests.
@@ -145,7 +145,7 @@ add the missing binding. PR #63 records an earlier real runtime observation
 of successful suggestions with zero post-session changed events and unavailable
 preparation. That is historical evidence, not this spike's reproduced runtime.
 
-Independently, current [TagApplyService](src/tags/tag-apply-service.ts) computes
+Independently, current [TagApplyService](../../src/tags/tag-apply-service.ts) computes
 `selected.filter((name) => !tags.existingTags.includes(name))` after its
 freshness/proof and tag-state checks. This is exact string membership.
 [Official tag help](https://help.obsidian.md/tags) documents case-insensitive
@@ -156,9 +156,9 @@ addition even when content-bound metadata freshness is proven. This is an
 independent duplicate-prevention gap in the current v0.4 Manual Tag Apply
 mutation core, not only B4's literal-guard false negative or stale-cache risk.
 
-[TagApplyAuthorization](src/tags/tag-apply-authorization.ts) retains exact names
-and compares tag sets with exact membership; [TagDiscoveryService](src/tags/tag-discovery-service.ts)
-also deduplicates exact strings. Existing [Tag Apply tests](tests/tag-apply.test.ts)
+[TagApplyAuthorization](../../src/tags/tag-apply-authorization.ts) retains exact names
+and compares tag sets with exact membership; [TagDiscoveryService](../../src/tags/tag-discovery-service.ts)
+also deduplicates exact strings. Existing [Tag Apply tests](../../tests/tag-apply.test.ts)
 check exact duplicate filtering and reject changed exact tag sets; those checks
 do not establish semantic identity for unchanged case variants. This finding
 comes from code inspection and the documented contract, not a Desktop mutation
@@ -429,7 +429,7 @@ Native UI initially showed the correct Synthetic Vault. Settings refresh and
 the separate plugin's enable toggle succeeded. Native input then returned
 `timeoutReached` three times: settings close, app rebind, and command-palette
 key input after the human returned to A. Automatic UI operations stopped at
-the same-failure limit in [STOP_CONDITIONS](agent/STOP_CONDITIONS.md). An earlier
+the same-failure limit in [STOP_CONDITIONS](../../agent/STOP_CONDITIONS.md). An earlier
 `noWindowsAvailable` and an invalid-element error are also preserved as
 infrastructure observations. No alternate OS automation, private Obsidian API,
 product repair or counter reset was used to bypass this STOP.
