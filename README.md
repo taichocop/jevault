@@ -17,8 +17,8 @@ Jevault suggests existing destination folders. You can explicitly select a sugge
 ## Requirements
 
 - Obsidian Desktop 1.11.4 or later
-- A TypeSafe account
-- A TypeSafe API key that you provide (bring your own key, or BYOK)
+- A TypeSafe account for Folder/Tag suggestions
+- A TypeSafe API key that you provide for Folder/Tag suggestions (bring your own key, or BYOK)
 
 Jevault uses the TypeSafe API for classification, so it does not provide an offline classification mode.
 
@@ -66,6 +66,12 @@ Already-on-note tags remain in the suggestions. No matching suggestions is a nor
 Freshness warnings explain when suggestions may be based on changed or unknown note content; they still allow confirmation. If the original note or suggestions are no longer available, Apply is blocked. **Already on note** is advisory, including inline tags. Apply prevents equivalent tags already in the current frontmatter from being added again; **No tags needed to be added** is a normal result.
 
 Manual Tag Apply is local and makes no provider request or Secret lookup. It adds only selected suggested tags through Obsidian's frontmatter API, preserving existing supported tags and unrelated fields. Once that API starts, closing or unloading the modal cannot undo the operation; it completes without automatic retry or rollback, and closed UI receives no late notification. There is no automatic Tag mutation, free-form/new Tag generation, or **Analyze again** action. Opening, selecting, and reviewing confirmation alone change no note.
+
+### Folder Organizer preview
+
+Right-click a folder in Explorer and select **Jevault: Organize notes in this folder**. Choose **This folder only** or **Include subfolders**, then select **Preview notes** to see the Markdown target count. Each preview is read-only and runs once; **Cancel**, **Esc**, or closing before Preview starts no collection. Ignored folders and the current Obsidian configuration directory are excluded; Inbox remains eligible as a source.
+
+Folder Organizer currently previews scope and Markdown target count only. It requires no API key, reads no note bodies, and makes no provider request or Vault changes. Folder/Tag analysis, Review, and Apply are not available from this entry.
 
 ## Privacy and external services
 
