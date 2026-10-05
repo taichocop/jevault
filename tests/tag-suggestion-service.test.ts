@@ -220,3 +220,67 @@ describe("TagSuggestionService", () => {
     },
   );
 });
+
+describe("TagSuggestionService prepared-note entry", () => {
+  it("uses supplied exact source/body for provenance, candidates, ordering and safe output", async () => {
+    const h = harness({ noteState: { status: "no-active-file" }, evaluations: [evaluation(1, 0.5), evaluation(2, 1, "other"), evaluation(0, 0.5)] });
+    const source = new NoteSource({ path: "Inbox/Exact.md", stat: { mtime: 7, size: 40 } } as TFile);
+    const note = Object.freeze({ title: "Exact", path: source.path, body: "Synthetic exact target body" });
+    const signal = new AbortController().signal;
+    const result = await h.service.suggestForNote(note, source, signal);
+    expect(result.source).toBe(source);
+    expect(result.noteTitle).toBe(note.title);
+    expect(result.suggestions).toEqual([evaluation(0, 0.5), evaluation(1, 0.5)]);
+    expect(h.getActiveNoteState).not.toHaveBeenCalled();
+    expect(h.discover).toHaveBeenCalledOnce();
+    expect(h.evaluate).toHaveBeenCalledExactlyOnceWith(note, candidates, signal);
+    const context = evaluationContext(result.evaluationProvenance, source);
+    expect(context).toBeDefined();
+    expect(evaluationContext(result.evaluationProvenance, readyNote.source)).toBeUndefined();
+    expect(sameContent(context!.content, (await fingerprintContent(note.body))!)).toBe(true);
+    expect(JSON.stringify(result)).not.toContain(note.body); expect(JSON.stringify(result)).not.toContain("unit-test-only");
+    expect(Object.keys(result).sort()).toEqual(["evaluationProvenance", "noteTitle", "source", "status", "suggestions"]);
+  });
+
+  it("preserves successful no-match semantics", async () => {
+    const h = harness({ evaluations: candidates.map((_, i) => evaluation(i, 1, "other")) });
+    expect((await h.service.suggestForNote(readyNote.note, readyNote.source)).suggestions).toEqual([]);
+  });
+
+  it("rejects absent candidates before Secret lookup", async () => {
+    const h = harness({ candidates: [] });
+    await expect(h.service.suggestForNote(readyNote.note, readyNote.source)).rejects.toBeInstanceOf(NoCandidatesError);
+    expect(h.getApiKey).not.toHaveBeenCalled(); expectNoEvaluation(h);
+  });
+
+  it.each([null, "", "   "])("rejects missing Secret %j without provider", async apiKey => {
+    const h = harness({ apiKey });
+    await expect(h.service.suggestForNote(readyNote.note, readyNote.source)).rejects.toBeInstanceOf(MissingApiKeyError);
+    expectNoEvaluation(h);
+  });
+
+  it.each([NetworkError, TypeSafeApiError, InvalidTypeSafeResponseError, ClassificationCancelledError])(
+    "preserves typed failure %s", async ErrorType => {
+      const h = harness(); const error = new ErrorType(); h.evaluate.mockRejectedValue(error);
+      await expect(h.service.suggestForNote(readyNote.note, readyNote.source)).rejects.toBe(error);
+    },
+  );
+
+  it("pre-abort prevents discovery, Secret lookup and evaluation", async () => {
+    const h = harness(); const controller = new AbortController(); controller.abort();
+    await expect(h.service.suggestForNote(readyNote.note, readyNote.source, controller.signal)).rejects.toBeInstanceOf(ClassificationCancelledError);
+    expect(h.discover).not.toHaveBeenCalled(); expect(h.getApiKey).not.toHaveBeenCalled(); expectNoEvaluation(h);
+  });
+
+  it("cancellation during fingerprint prevents discovery and Secret lookup", async () => {
+    const h = harness(); const controller = new AbortController();
+    const source = new NoteSource({ path: "Exact.md", stat: { mtime: 1, size: 2 } } as TFile);
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest").mockImplementation(async () => {
+      controller.abort(); return new ArrayBuffer(32);
+    });
+    try {
+      await expect(h.service.suggestForNote(readyNote.note, source, controller.signal)).rejects.toBeInstanceOf(ClassificationCancelledError);
+      expect(h.discover).not.toHaveBeenCalled(); expect(h.getApiKey).not.toHaveBeenCalled(); expectNoEvaluation(h);
+    } finally { digest.mockRestore(); }
+  });
+});

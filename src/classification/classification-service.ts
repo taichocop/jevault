@@ -1,4 +1,4 @@
-import type { NoteService } from "../note-service";
+import type { NoteService, NoteState } from "../note-service";
 import type { NoteSource } from "../note-source";
 import type { SecretService } from "../secret-service";
 import type { JevaultSettings } from "../settings";
@@ -53,6 +53,16 @@ export class ClassificationService {
       throw new UnsupportedFileError();
     }
 
+    return this.classifyNote(noteState.note, noteState.source, signal);
+  }
+
+  /** 読取済みのexact Noteを分析し、active Noteの取得は行わない。 */
+  async classifyNote(
+    note: Readonly<NoteState>,
+    source: NoteSource,
+    signal?: AbortSignal,
+  ): Promise<ClassificationServiceResult> {
+    throwIfCancelled(signal);
     const settings = this.getSettings();
     const folderPaths = this.vaultService.getAvailableFolderPaths(settings);
     const candidates = this.candidateBuilder.build(folderPaths);
@@ -73,7 +83,7 @@ export class ClassificationService {
     const classifier = this.classifierFactory(apiKey);
     const result = await classifyAndSort(
       classifier,
-      noteState.note,
+      note,
       candidates,
       signal,
     );
@@ -82,8 +92,8 @@ export class ClassificationService {
     return {
       status: "success",
       // 本文やSecretを結果へ含めず、移動対象のidentityだけをapplication層へ渡す。
-      noteTitle: noteState.note.title,
-      source: noteState.source,
+      noteTitle: note.title,
+      source,
       result: {
         ...result,
         // providerConfidenceは順位に使わず保持し、probability sort後に表示件数だけを制限する。
