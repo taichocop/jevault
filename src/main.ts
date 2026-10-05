@@ -23,6 +23,8 @@ import { TagSuggestionService } from "./tags/tag-suggestion-service";
 import { TagApplyPreparationSession } from "./tags/tag-apply-preparation";
 import { TagSuggestionGrantIssuer } from "./tags/tag-suggestion-grant";
 import { TagApplyService } from "./tags/tag-apply-service";
+import { FolderOrganizerEntryController } from "./organizer/folder-organizer-entry";
+import { TargetFileCollector } from "./organizer/target-file-collector";
 
 export default class JevaultPlugin extends Plugin {
   settings: JevaultSettings = loadSettings(undefined);
@@ -32,9 +34,16 @@ export default class JevaultPlugin extends Plugin {
   classificationService!: ClassificationService;
   classificationCommand?: ClassificationCommand;
   tagSuggestionCommand?: TagSuggestionCommand;
+  folderOrganizerEntry?: FolderOrganizerEntryController;
 
   async onload(): Promise<void> {
     this.settings = loadSettings(await this.loadData());
+    this.folderOrganizerEntry = new FolderOrganizerEntryController(
+      this.app, new TargetFileCollector(this.app.vault), () => this.settings,
+    );
+    this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => {
+      this.folderOrganizerEntry?.addToMenu(menu, file);
+    }));
     this.noteService = new NoteService(this.app.workspace, this.app.vault);
     // SecretStorage へのアクセスは専用サービスへ閉じ込め、後続の分類処理から差し替え可能にする。
     this.secretService = new SecretService(this.app.secretStorage);
@@ -139,6 +148,8 @@ export default class JevaultPlugin extends Plugin {
   }
 
   onunload(): void {
+    this.folderOrganizerEntry?.dispose();
+    this.folderOrganizerEntry = undefined;
     this.tagSuggestionCommand?.dispose();
     this.tagSuggestionCommand = undefined;
     this.classificationCommand?.dispose();

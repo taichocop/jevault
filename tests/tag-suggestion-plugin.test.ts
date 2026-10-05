@@ -80,6 +80,7 @@ vi.mock("obsidian", async () => {
     async loadData() { return { apiKeySecretName: "synthetic-reference" }; }
     addCommand(command: { id: string; name: string; callback: () => void }) { this.commands.push(command); }
     addSettingTab() {}
+    registerEvent() {}
   }
   return { TFile: (await import("./helpers/obsidian-move")).TFile, parseFrontMatterTags: () => [], App: class {}, Modal, Notice, Plugin, getAllTags: (cache: { canonical: string[] }) => cache.canonical };
 });
@@ -142,7 +143,7 @@ function harness() {
   const getSecret = vi.fn(() => "unit-test-only");
   const plugin = new JevaultPlugin({} as App, {} as never);
   plugin.app = {
-    workspace: { getActiveFile: () => active },
+    workspace: { getActiveFile: () => active, on: vi.fn(() => ({})) },
     vault: { read, getMarkdownFiles: () => [original, other],
       getFileByPath,
       modify: forbidden, rename: forbidden, delete: forbidden, create: forbidden, createFolder: forbidden, cachedRead: forbidden },
