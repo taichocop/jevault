@@ -27,6 +27,7 @@ import { FolderOrganizerEntryController } from "./organizer/folder-organizer-ent
 import { TargetFileCollector } from "./organizer/target-file-collector";
 import { OrganizationTargetReader } from "./organizer/organization-target-reader";
 import { FolderOrganizerService } from "./organizer/folder-organizer-service";
+import { OrganizationReviewService } from "./organizer/organization-review-service";
 
 export default class JevaultPlugin extends Plugin {
   settings: JevaultSettings = loadSettings(undefined);
@@ -100,6 +101,10 @@ export default class JevaultPlugin extends Plugin {
       this.app, new TargetFileCollector(this.app.vault), () => this.settings,
       new FolderOrganizerService(
         new OrganizationTargetReader(this.app.vault), this.classificationService, tagSuggestionService,
+      ),
+      new OrganizationReviewService(
+        this.vaultService, new TagDiscoveryService(this.app.vault, this.app.metadataCache),
+        new ExistingTagSnapshotService(this.app.vault, this.app.metadataCache), () => this.settings,
       ),
     );
     this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => {
