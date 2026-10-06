@@ -46,7 +46,7 @@ class RadioElement extends Element {
     if (event === "change") this.changeHandler = handler;
     else super.addEventListener(event, handler);
   }
-  change(): void { this.checked = true; this.changeHandler?.({ detail: 0 }); }
+  change(checked = true): void { this.checked = checked; this.changeHandler?.({ detail: 0 }); }
 }
 function note(path: string) { return Object.assign(new TFile(path), { stat: { mtime: 1, size: 2 } }); }
 function folder(path: string, children: TFolder["children"] = []) { return Object.assign(new TFolder(path), { children }); }
@@ -230,7 +230,7 @@ function analysisHarness() {
   const h = harness();
   const pending = deferred<FolderOrganizerAnalysisResult>();
   let publish!: (progress: FolderOrganizerProgress) => void;
-  const analyze = vi.spyOn(FolderOrganizerService.prototype, "analyze").mockImplementation((_targets, _signal, onProgress) => {
+  const analyze = vi.spyOn(FolderOrganizerService.prototype, "analyze").mockImplementation((_targets, _options, _signal, onProgress) => {
     publish = onProgress!;
     return pending.promise;
   });
@@ -248,9 +248,10 @@ describe("Folder Organizer explicit analysis UI (#97)", () => {
     expect(text(modal)).toEqual([
       recursive ? "2 Markdown notes found." : "1 Markdown note found.",
       "Selected folder: Inbox", `Scope: ${recursive ? "Include subfolders" : "This folder only"}`,
+      "Analysis options:", "Folder suggestions", "Tag suggestions",
       "Analysis: Folder suggestions + Tag suggestions",
-      "Analyzing these notes sends note titles, Vault-relative note paths, Markdown bodies, candidate folder paths, and existing Vault Tag candidates to TypeSafe and may use TypeSafe-managed credits.",
-      "Folder then Tag analysis can make up to 2 TypeSafe requests per fully analyzed note. Failures or cancellation may produce fewer requests.",
+      "Analyzing these notes sends note titles, Vault-relative note paths, Markdown bodies, candidate folder paths, and existing Vault Tag candidates and optional descriptions to TypeSafe and may use TypeSafe-managed credits.",
+      "Folder then Tag analysis can make up to 2 TypeSafe requests (1 Folder + 1 Tag) per fully analyzed note. Failures or cancellation may produce fewer requests.",
       "No changes will be made to your Vault.", "Analyze notes", "Cancel",
     ]);
     expect(h.analyze).not.toHaveBeenCalled(); expect(h.forbidden).not.toHaveBeenCalled();
@@ -312,7 +313,7 @@ describe("Folder Organizer explicit analysis UI (#97)", () => {
   it.each(["click", "Enter"])("Stop via %s aborts analysis only, remains stopping until settled, idempotent", async activation => {
     const h = analysisHarness(); await h.plugin.onload(); const modal = h.open();
     button(modal, "Preview notes").click(); const analyze = button(modal, "Analyze notes"); analyze.click();
-    const signal = h.analyze.mock.calls[0][1]!;
+    const signal = h.analyze.mock.calls[0][2]!;
     const lifetime = h.collect.mock.calls[0][2]!;
     const abort = vi.fn(); signal.addEventListener("abort", abort);
     h.publish({ total: 12, processed: 4, failed: 1 });
@@ -340,6 +341,7 @@ describe("Folder Organizer explicit analysis UI (#97)", () => {
   });
 
   const reasons: Array<[OrganizationAnalysisStopReason, string]> = [
+    ["invalid-options", "Select at least one analysis option."],
     ["missing-api-key", "A TypeSafe API key is required to analyze these notes."],
     ["no-candidates", "Jevault couldn't continue because no eligible analysis candidates were available."],
     ["network", "A network error stopped the analysis."],
@@ -371,7 +373,7 @@ describe("Folder Organizer explicit analysis UI (#97)", () => {
     const h = analysisHarness(); await h.plugin.onload(); const modal = h.open();
     button(modal, "Preview notes").click(); const analyze = button(modal, "Analyze notes"); analyze.click();
     h.publish(finalProgress); h.pending.reject(new Error("synthetic-secret-body-response")); await flush();
-    expect(text(modal)).toEqual(["Analysis stopped.", "2 / 2 notes processed.", "1 failed.", reasons[5][1], "No changes were made to your Vault.", "Close"]);
+    expect(text(modal)).toEqual(["Analysis stopped.", "2 / 2 notes processed.", "1 failed.", reasons[6][1], "No changes were made to your Vault.", "Close"]);
     expect(modal.getAnalysisResult()).toBeUndefined(); analyze.click(); expect(h.analyze).toHaveBeenCalledOnce(); h.plugin.onunload();
   });
 
@@ -389,7 +391,7 @@ describe("Folder Organizer explicit analysis UI (#97)", () => {
   it.each(["Close", "Escape", "X", "unload", "onClose"])("%s aborts and disposes active analysis, no late progress/result or new-operation contamination", async action => {
     const h = analysisHarness(); await h.plugin.onload(); const modal = h.open();
     button(modal, "Preview notes").click(); const analyze = button(modal, "Analyze notes"); analyze.click(); const stop = button(modal, "Stop");
-    const signal = h.analyze.mock.calls[0][1]!;
+    const signal = h.analyze.mock.calls[0][2]!;
     if (action === "Close") button(modal, "Close").click(); else if (action === "Escape") press(modal, "Escape");
     else if (action === "X") modal.close(); else if (action === "onClose") modal.onClose(); else h.plugin.onunload();
     expect(signal.aborted).toBe(true); expect(text(modal)).toEqual([]);
@@ -406,19 +408,31 @@ describe("Folder Organizer explicit analysis UI (#97)", () => {
     button(modal, "Preview notes").click(); button(modal, "Analyze notes").click();
     const base = await import("./helpers/obsidian-move"); vi.spyOn(base.Modal.prototype, "close").mockImplementation(() => {});
     const prior = text(modal); modal.close();
-    expect(h.analyze.mock.calls[0][1]!.aborted).toBe(true);
+    expect(h.analyze.mock.calls[0][2]!.aborted).toBe(true);
     h.publish(finalProgress); h.pending.resolve(completed); await flush(); expect(text(modal)).toEqual(prior);
     expect(modal.getAnalysisResult()).toBeUndefined(); modal.onClose(); h.plugin.onunload();
   });
 });
 
+const modes = [
+  { evaluateFolder: true, evaluateTags: true },
+  { evaluateFolder: true, evaluateTags: false },
+  { evaluateFolder: false, evaluateTags: true },
+] as const;
+function setOptions(modal: FolderOrganizerScopeModal, options: { evaluateFolder: boolean; evaluateTags: boolean }) {
+  const controls = elements(modal).filter(e => e.tag === "input");
+  controls[0].change(options.evaluateFolder); controls[1].change(options.evaluateTags);
+  return controls;
+}
+
 describe("Folder Organizer production service composition", () => {
-  it.each(["unchanged", "renamed", "moved", "deleted", "replaced", "edited"])("exact %s target uses #92/#95 semantics and never retargets", async change => {
+  it.each(modes.flatMap(options => ["unchanged", "renamed", "moved", "deleted", "replaced", "edited"].map(change => ({ options, change }))))("exact %j target never retargets in every mode", async ({ options, change }) => {
     const h = harness(); const analyze = vi.spyOn(FolderOrganizerService.prototype, "analyze");
     const folderAnalysis = vi.spyOn(ClassificationService.prototype, "classifyNote").mockImplementation(async (note, source) => ({ status: "success", noteTitle: note.title, source, result: { candidates: [] } }));
     const tagAnalysis = vi.spyOn(TagSuggestionService.prototype, "suggestForNote").mockImplementation(async (note, source) => ({ status: "success", noteTitle: note.title, source, suggestions: [] }));
     h.vault.read.mockImplementation(async () => "synthetic read-only body" as never);
     await h.plugin.onload(); const modal = h.open(); radio(modal, 1).change(); button(modal, "Preview notes").click();
+    setOptions(modal, options);
     const targets = (h.collect.mock.results[0].value as { targets: readonly OrganizationTarget[] }).targets;
     const first = h.entries.get("Inbox/A.md") as TFile & { stat: { mtime: number; size: number } };
     if (change === "renamed") first.path = "Inbox/Renamed.md";
@@ -434,10 +448,10 @@ describe("Folder Organizer production service composition", () => {
     expect(result.status).toBe("completed"); expect(result.progress).toEqual({ total: 2, processed: 2, failed: change === "unchanged" ? 0 : 1 });
     expect(result.results.map(r => r.snapshot.path)).toEqual(["Inbox/A.md", "Inbox/Nested/B.md"]);
     if (change !== "unchanged") expect(result.results[0].readFailure).toBe("source-changed");
-    expect(folderAnalysis).toHaveBeenCalledTimes(change === "unchanged" ? 2 : 1);
-    expect(tagAnalysis).toHaveBeenCalledTimes(change === "unchanged" ? 2 : 1);
-    expect(folderAnalysis.mock.calls.at(-1)![1]).toBe(targets[1].source);
-    expect(tagAnalysis.mock.calls.at(-1)![1]).toBe(targets[1].source);
+    expect(folderAnalysis).toHaveBeenCalledTimes(options.evaluateFolder ? (change === "unchanged" ? 2 : 1) : 0);
+    expect(tagAnalysis).toHaveBeenCalledTimes(options.evaluateTags ? (change === "unchanged" ? 2 : 1) : 0);
+    if (options.evaluateFolder) expect(folderAnalysis.mock.calls.at(-1)![1]).toBe(targets[1].source);
+    if (options.evaluateTags) expect(tagAnalysis.mock.calls.at(-1)![1]).toBe(targets[1].source);
     expect(h.getSecret).not.toHaveBeenCalled(); h.plugin.onunload();
   });
 
@@ -456,23 +470,27 @@ describe("Folder Organizer production service composition", () => {
     expect(provider.classify).not.toHaveBeenCalled(); expect(provider.evaluate).not.toHaveBeenCalled(); h.plugin.onunload();
   });
 
-  it("production provider/Secret path is first reachable at explicit Analyze, sharing existing Folder/Tag services", async () => {
+  it.each(modes)("production provider/Secret/candidate paths run enabled phases only: %j", async options => {
     const h = harness(); h.vault.read.mockImplementation(async () => "synthetic body" as never);
     h.vault.getAllFolders.mockImplementation(() => [folder("Dest")] as never);
     h.vault.getMarkdownFiles.mockImplementation(() => [] as never);
     const { TagDiscoveryService } = await import("../src/tags/tag-discovery-service");
-    vi.spyOn(TagDiscoveryService.prototype, "discover").mockReturnValue([{ id: "synthetic", name: "#synthetic" }]);
+    const discoverTags = vi.spyOn(TagDiscoveryService.prototype, "discover").mockReturnValue([{ id: "synthetic", name: "#synthetic" }]);
     h.getSecret.mockReturnValue("unit-test-only");
     provider.classify.mockResolvedValue({ candidates: [{ path: "Dest", probability: 1 }] });
     provider.evaluate.mockResolvedValue({ evaluations: [] });
     const analyze = vi.spyOn(FolderOrganizerService.prototype, "analyze");
     await h.plugin.onload(); h.plugin.settings.apiKeySecretName = "synthetic-reference";
     const modal = h.open(); radio(modal, 0).change(); button(modal, "Preview notes").click();
+    setOptions(modal, options);
     expect(h.vault.read).not.toHaveBeenCalled(); expect(h.getSecret).not.toHaveBeenCalled(); expect(provider.classify).not.toHaveBeenCalled(); expect(provider.evaluate).not.toHaveBeenCalled();
     button(modal, "Analyze notes").click(); await analyze.mock.results[0].value; await flush();
-    expect(provider.classify).toHaveBeenCalledOnce(); expect(provider.evaluate).toHaveBeenCalledOnce(); expect(h.getSecret).toHaveBeenCalledTimes(2);
-    expect(provider.classify.mock.calls[0][0]).toEqual({ title: "A", path: "Inbox/A.md", body: "synthetic body" });
-    expect(provider.evaluate.mock.calls[0][0]).toEqual(provider.classify.mock.calls[0][0]);
+    expect(provider.classify).toHaveBeenCalledTimes(options.evaluateFolder ? 1 : 0); expect(provider.evaluate).toHaveBeenCalledTimes(options.evaluateTags ? 1 : 0);
+    expect(discoverTags).toHaveBeenCalledTimes(options.evaluateTags ? 1 : 0); expect(h.vault.getAllFolders).toHaveBeenCalledTimes(options.evaluateFolder ? 1 : 0);
+    expect(h.getSecret).toHaveBeenCalledTimes(Number(options.evaluateFolder) + Number(options.evaluateTags));
+    expect(h.vault.read).toHaveBeenCalledOnce();
+    if (options.evaluateFolder) expect(provider.classify.mock.calls[0][0]).toEqual({ title: "A", path: "Inbox/A.md", body: "synthetic body" });
+    if (options.evaluateTags) expect(provider.evaluate.mock.calls[0][0]).toEqual({ title: "A", path: "Inbox/A.md", body: "synthetic body" });
     expect(modal.getAnalysisResult()!.status).toBe("completed");
     expect(h.vault.modify).not.toHaveBeenCalled(); expect(h.vault.create).not.toHaveBeenCalled(); expect(h.vault.createFolder).not.toHaveBeenCalled(); expect(h.vault.delete).not.toHaveBeenCalled();
     expect(h.plugin.app.fileManager.renameFile).not.toHaveBeenCalled(); expect(h.plugin.app.fileManager.processFrontMatter).not.toHaveBeenCalled();
@@ -484,13 +502,79 @@ describe("Folder Organizer production service composition", () => {
     for (const doc of Object.values(docs)) {
       expect(doc).toContain("**Analyze notes**"); expect(doc).toContain("Preview"); expect(doc).toContain("exact");
       expect(doc).toContain("TypeSafe"); expect(doc).toContain("Vault");
+      for (const evidence of ["both enabled by default", "at least one", "Folder-only", "Tag-only", "up to 1 Folder request", "up to 1 Tag request", "immutable", "retry"]) expect(doc.toLowerCase()).toContain(evidence.toLowerCase());
     }
     for (const name of ["README.md", "PRIVACY.md"]) {
       expect(docs[name]).toContain("up to 2"); expect(docs[name]).toContain("TypeSafe-managed credits may be used");
       expect(docs[name]).toContain("operation memory");
     }
-    expect(docs["README.md"]).toContain("Analysis Options remain deferred");
+    expect(docs["README.md"]).toContain("both enabled by default");
     expect(docs["README.md"]).toContain("Review and Apply are not available");
     expect(docs["PRIVACY.md"]).toContain("does not persist results or bodies");
+  });
+});
+
+
+describe("Folder Organizer analysis option controls (#99)", () => {
+  it.each(modes)("toggles locally, discloses enabled data and captures immutable options once: %j", async options => {
+    const h = analysisHarness(); await h.plugin.onload(); const modal = h.open();
+    button(modal, "Preview notes").click();
+    expect(elements(modal).filter(e => e.tag === "input").map(e => e.checked)).toEqual([true, true]);
+    const controls = setOptions(modal, options);
+    const disclosure = text(modal).join(" ");
+    expect(disclosure).toContain("TypeSafe-managed credits");
+    expect(disclosure).toContain("No changes will be made to your Vault.");
+    if (options.evaluateFolder && options.evaluateTags) {
+      expect(disclosure).toContain("Analysis: Folder suggestions + Tag suggestions");
+      expect(disclosure).toContain("up to 2 TypeSafe requests (1 Folder + 1 Tag)");
+    } else {
+      expect(disclosure).toContain(`Analysis: ${options.evaluateFolder ? "Folder" : "Tag"} suggestions`);
+      expect(disclosure).toContain(`up to 1 ${options.evaluateFolder ? "Folder" : "Tag"} TypeSafe request`);
+    }
+    expect(disclosure.includes("candidate folder paths")).toBe(options.evaluateFolder);
+    expect(disclosure.includes("existing Vault Tag candidates and optional descriptions")).toBe(options.evaluateTags);
+    expect(h.collect).toHaveBeenCalledOnce(); expect(h.analyze).not.toHaveBeenCalled();
+    expect(h.vault.read).not.toHaveBeenCalled(); expect(h.getSecret).not.toHaveBeenCalled();
+    expect(provider.classify).not.toHaveBeenCalled(); expect(provider.evaluate).not.toHaveBeenCalled(); expect(h.forbidden).not.toHaveBeenCalled();
+    const targets = (h.collect.mock.results[0].value as { targets: readonly OrganizationTarget[] }).targets;
+    const analyze = button(modal, "Analyze notes"); analyze.click();
+    expect(h.analyze.mock.calls[0][0]).toBe(targets);
+    const captured = h.analyze.mock.calls[0][1];
+    expect(captured).toEqual(options); expect(Object.isFrozen(captured)).toBe(true);
+    expect(controls.every(e => e.disabled)).toBe(true);
+    for (const control of controls) control.change(!control.checked);
+    analyze.click(); press(modal, "Enter");
+    expect(captured).toEqual(options); expect(h.analyze).toHaveBeenCalledOnce(); expect(h.collect).toHaveBeenCalledOnce();
+    h.pending.resolve(completed); await flush();
+    for (const control of controls) control.change(!control.checked);
+    expect(captured).toEqual(options); expect(text(modal)).toContain("Analysis complete.");
+    expect(h.forbidden).not.toHaveBeenCalled(); h.plugin.onunload();
+  });
+  it("both unchecked blocks click and Enter; re-enabling one restores Analyze", async () => {
+    const h = analysisHarness(); await h.plugin.onload(); const modal = h.open();
+    button(modal, "Preview notes").click(); const controls = setOptions(modal, { evaluateFolder: false, evaluateTags: false });
+    const analyze = button(modal, "Analyze notes");
+    expect(analyze.disabled).toBe(true); expect(text(modal)).toContain("Select at least one analysis option.");
+    expect(text(modal).join(" ")).not.toContain("TypeSafe request");
+    analyze.click(); analyze.focus(); press(modal, "Enter");
+    expect(h.analyze).not.toHaveBeenCalled(); expect(h.collect).toHaveBeenCalledOnce();
+    expect(h.vault.read).not.toHaveBeenCalled(); expect(h.getSecret).not.toHaveBeenCalled();
+    expect(provider.classify).not.toHaveBeenCalled(); expect(provider.evaluate).not.toHaveBeenCalled(); expect(h.forbidden).not.toHaveBeenCalled();
+    controls[1].change(true); expect(analyze.disabled).toBe(false);
+    expect(text(modal)).not.toContain("Select at least one analysis option.");
+    press(modal, "Enter"); expect(h.analyze).toHaveBeenCalledOnce();
+    expect(h.analyze.mock.calls[0][1]).toEqual({ evaluateFolder: false, evaluateTags: true });
+    h.pending.resolve(completed); await flush(); h.plugin.onunload();
+  });
+  it.each(modes)("Stop and close retain the captured mode: %j", async options => {
+    const h = analysisHarness(); await h.plugin.onload(); const modal = h.open();
+    button(modal, "Preview notes").click(); const controls = setOptions(modal, options);
+    button(modal, "Analyze notes").click(); const signal = h.analyze.mock.calls[0][2]!;
+    button(modal, "Stop").click(); expect(signal.aborted).toBe(true);
+    for (const control of controls) control.change(!control.checked);
+    h.pending.resolve({ status: "cancelled", results: [], progress: { total: 1, processed: 1, failed: 0 } }); await flush();
+    expect(text(modal)).toContain("No further notes were analyzed.");
+    expect(h.analyze.mock.calls[0][1]).toEqual(options); expect(h.collect).toHaveBeenCalledOnce();
+    button(modal, "Close").click(); expect(modal.getAnalysisResult()).toBeUndefined(); h.plugin.onunload();
   });
 });

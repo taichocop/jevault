@@ -73,11 +73,15 @@ Right-click a folder in Explorer and select **Jevault: Organize notes in this fo
 
 **Preview notes** is entirely local: no note body reads, provider requests, Secret lookups, or Vault changes. A successful non-empty Preview retains the exact target objects and order for this operation. Notes added after Preview are not included; changed, deleted, moved, or replaced targets fail safely without recollection or active-note fallback.
 
-Review the selected folder, scope, count, and external-data disclosure, then explicitly select **Analyze notes**. This starts one sequential Folder-then-Tag analysis of those exact Preview targets. Note titles, Vault-relative paths, Markdown bodies, candidate folder paths, and existing Vault Tag candidates may be sent to TypeSafe. TypeSafe-managed credits may be used: the current pipeline can make up to 1 Folder request + 1 Tag request, or up to 2 requests per fully analyzed note. Failures or cancellation may produce fewer requests; no fixed cost or credit amount is promised.
+After Preview, **Folder suggestions** and **Tag suggestions** are both enabled by default and can be toggled independently. At least one must be enabled; otherwise **Analyze notes** is disabled with guidance to select an analysis option. Toggling options updates the disclosure locally, with no body reads, provider requests, Secret lookups, target recollection, or Vault changes. These controls configure analysis, not Review selection.
+
+Review the selected folder, scope, count, options, and external-data disclosure, then explicitly select **Analyze notes**. One immutable options snapshot applies to the exact Preview targets for the entire sequential run. Each attempted note is read at most once. Both enabled runs Folder then Tag; Folder-only makes no Tag service/provider/Secret/candidate call, and Tag-only makes no Folder service/provider/Secret/candidate call. Disabled phases are recorded explicitly as `not-run(disabled)`, without making a successful note partial or failed.
+
+Note titles, Vault-relative paths, and Markdown bodies may be sent to TypeSafe for enabled analysis. Folder analysis may send candidate folder paths; Tag analysis may send existing Vault Tag candidate names and optional descriptions. A disabled phase sends none of its candidate category through that phase. TypeSafe-managed credits may be used: both enabled can make up to 2 requests per fully analyzed note (1 Folder + 1 Tag), Folder-only up to 1 Folder request, and Tag-only up to 1 Tag request. Failures or cancellation may produce fewer requests; no fixed cost or credit amount is promised.
 
 Progress shows processed/total, failed count, and current path. **Stop** requests cancellation and keeps the Modal open while in-flight work settles, then shows the cancelled summary. **Close**, **Esc**, the close button, or plugin unload cancels and disposes the UI without late results. Completed, stopped, and cancelled summaries retain truthful counts; completed does not mean every note succeeded. Analysis and results remain read-only, are kept only in operation memory, and make no Vault changes. Reopen Folder Organizer for a fresh explicit analysis; there is no automatic analysis or retry.
 
-Review and Apply are not available from this entry. Independent Folder/Tag Analysis Options remain deferred to a separate bounded v0.5 follow-up; this flow does not complete all v0.5 requirements.
+Review and Apply are not available from this entry; this flow does not complete all v0.5 requirements.
 
 ## Privacy and external services
 

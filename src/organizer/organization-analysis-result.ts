@@ -6,13 +6,13 @@ import type { NoteSnapshot } from "./target-file-collector";
 
 export type OrganizationAnalysisStopReason =
   | "missing-api-key" | "no-candidates" | "network" | "typesafe-api"
-  | "invalid-response" | "unexpected-error";
+  | "invalid-response" | "unexpected-error" | "invalid-options";
 export type OrganizationReadFailure = "source-changed" | "read-failed";
 
 export type AnalysisPhaseResult<T> =
   | { readonly status: "success"; readonly value: T }
   | { readonly status: "failure"; readonly reason: OrganizationAnalysisStopReason }
-  | { readonly status: "not-run"; readonly reason: "prior-failure" | "cancelled" };
+  | { readonly status: "not-run"; readonly reason: "prior-failure" | "cancelled" | "disabled" };
 
 export type OrganizationFolderAnalysis = Readonly<Omit<ClassificationServiceResult, "result">> & {
   readonly result: {
