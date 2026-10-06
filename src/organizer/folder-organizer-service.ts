@@ -9,6 +9,7 @@ import type {
   OrganizationAnalysisStopReason, OrganizationFolderAnalysis, OrganizationNoteAnalysis, OrganizationTagAnalysis,
 } from "./organization-analysis-result";
 import type { OrganizationTargetReader } from "./organization-target-reader";
+import type { OrganizationAnalysisOptions } from "./organization-analysis-options";
 import type { OrganizationTarget } from "./target-file-collector";
 
 type Termination = { status: "cancelled" } | { status: "stopped"; reason: OrganizationAnalysisStopReason };
@@ -24,7 +25,7 @@ function failureReason(error: unknown): OrganizationAnalysisStopReason {
   return "unexpected-error";
 }
 
-function notRun(reason: "prior-failure" | "cancelled") {
+function notRun(reason: "prior-failure" | "cancelled" | "disabled") {
   return Object.freeze({ status: "not-run" as const, reason });
 }
 
@@ -58,9 +59,12 @@ export class FolderOrganizerService {
 
   async analyze(
     targets: readonly OrganizationTarget[],
+    options: OrganizationAnalysisOptions,
     signal?: AbortSignal,
     onProgress?: (progress: FolderOrganizerProgress) => void,
   ): Promise<FolderOrganizerAnalysisResult> {
+    // callerの可変設定はcallback/awaitより前に切り離し、run全体で固定する。
+    const ownedOptions = Object.freeze({ evaluateFolder: options.evaluateFolder, evaluateTags: options.evaluateTags });
     const owned = Object.freeze(targets.map(({ source, snapshot }) => Object.freeze({
       source, snapshot: Object.freeze({ path: snapshot.path, mtime: snapshot.mtime, size: snapshot.size }),
     })));
@@ -85,6 +89,7 @@ export class FolderOrganizerService {
           : { status: "completed" as const });
       return Object.freeze({ ...status, results: Object.freeze([...results]), progress });
     };
+    if (!ownedOptions.evaluateFolder && !ownedOptions.evaluateTags) return finish({ status: "stopped", reason: "invalid-options" });
     if (owned.length === 0) return finish();
     if (signal?.aborted) return finish({ status: "cancelled" });
     if (!publish()) return finish({ status: "stopped", reason: "unexpected-error" });
@@ -93,7 +98,7 @@ export class FolderOrganizerService {
       if (!publish(target.snapshot.path)) return finish({ status: "stopped", reason: "unexpected-error" });
       if (signal?.aborted) return finish({ status: "cancelled" });
       // 本文はこのhelper内だけに留め、次targetへ進む前に参照を手放す。
-      const analysis = await this.analyzeTarget(target, signal);
+      const analysis = await this.analyzeTarget(target, ownedOptions, signal);
       results.push(analysis.result);
       if (analysis.result.status === "failed" || analysis.result.status === "partial") failed++;
       const published = publish();
@@ -104,9 +109,13 @@ export class FolderOrganizerService {
     return finish();
   }
 
-  private async analyzeTarget(target: OrganizationTarget, signal?: AbortSignal): Promise<TargetAnalysis> {
-    let folder: AnalysisPhaseResult<OrganizationFolderAnalysis> = notRun("cancelled");
-    let tags: AnalysisPhaseResult<OrganizationTagAnalysis> = notRun("cancelled");
+  private async analyzeTarget(target: OrganizationTarget, options: OrganizationAnalysisOptions, signal?: AbortSignal): Promise<TargetAnalysis> {
+    let folder: AnalysisPhaseResult<OrganizationFolderAnalysis> = notRun(options.evaluateFolder ? "cancelled" : "disabled");
+    let tags: AnalysisPhaseResult<OrganizationTagAnalysis> = notRun(options.evaluateTags ? "cancelled" : "disabled");
+    const readFailed = (): void => {
+      if (options.evaluateFolder) folder = notRun("prior-failure");
+      if (options.evaluateTags) tags = notRun("prior-failure");
+    };
     const terminal = (status: OrganizationNoteAnalysis["status"], termination?: Termination,
       readFailure?: OrganizationNoteAnalysis["readFailure"]): TargetAnalysis => ({
       result: Object.freeze({ source: target.source, snapshot: target.snapshot, folder, tags, status,
@@ -120,27 +129,34 @@ export class FolderOrganizerService {
       const read = await this.reader.read(target, signal);
       if (read.status === "cancelled" || signal?.aborted) return cancelled();
       if (read.status === "failure") {
-        folder = notRun("prior-failure"); tags = notRun("prior-failure");
+        readFailed();
         return terminal("failed", undefined, read.reason);
       }
-      phase = "folder";
-      const classified = await this.folders.classifyNote(read.note, target.source, signal);
-      folder = Object.freeze({ status: "success", value: copyFolder(classified, target) });
-      if (signal?.aborted) return cancelled();
-      phase = "tags";
-      const suggested = await this.tags.suggestForNote(read.note, target.source, signal);
-      tags = Object.freeze({ status: "success", value: copyTags(suggested, target) });
-      // 両phaseが完了したNoteは成功として保持し、operation側で次のworkを止める。
+      if (options.evaluateFolder) {
+        phase = "folder";
+        const classified = await this.folders.classifyNote(read.note, target.source, signal);
+        folder = Object.freeze({ status: "success", value: copyFolder(classified, target) });
+      }
+      if (options.evaluateTags) {
+        if (signal?.aborted) return cancelled();
+        phase = "tags";
+        const suggested = await this.tags.suggestForNote(read.note, target.source, signal);
+        tags = Object.freeze({ status: "success", value: copyTags(suggested, target) });
+      }
+      // 有効phaseが完了したNoteは成功として保持し、operation側で次のworkを止める。
       return terminal("success");
     } catch (error: unknown) {
       if (signal?.aborted || error instanceof ClassificationCancelledError) return cancelled();
       const reason = failureReason(error);
       if (phase === "read") {
-        folder = notRun("prior-failure"); tags = notRun("prior-failure");
+        readFailed();
         return terminal("failed", { status: "stopped", reason }, "unexpected-error");
       }
       const failure = Object.freeze({ status: "failure" as const, reason });
-      if (phase === "folder") { folder = failure; tags = notRun("prior-failure"); }
+      if (phase === "folder") {
+        folder = failure;
+        if (options.evaluateTags) tags = notRun("prior-failure");
+      }
       else tags = failure;
       return terminal(phase === "tags" && folder.status === "success" ? "partial" : "failed",
         { status: "stopped", reason });

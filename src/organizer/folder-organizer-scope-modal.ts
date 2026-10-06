@@ -6,6 +6,7 @@ import type { OrganizationTarget, TargetCollectionResult, TargetFileCollector } 
 
 import type { FolderOrganizerService } from "./folder-organizer-service";
 import type { FolderOrganizerAnalysisResult, FolderOrganizerProgress, OrganizationAnalysisStopReason } from "./organization-analysis-result";
+import type { OrganizationAnalysisOptions } from "./organization-analysis-options";
 
 const stopFeedback: Record<OrganizationAnalysisStopReason, string> = {
   "missing-api-key": "A TypeSafe API key is required to analyze these notes.",
@@ -14,6 +15,7 @@ const stopFeedback: Record<OrganizationAnalysisStopReason, string> = {
   "typesafe-api": "TypeSafe couldn't complete an analysis request.",
   "invalid-response": "TypeSafe returned an invalid response, so the analysis stopped.",
   "unexpected-error": "Jevault couldn't continue the analysis safely.",
+  "invalid-options": "Select at least one analysis option.",
 };
 
 function feedback(result: TargetCollectionResult): string | undefined {
@@ -51,6 +53,11 @@ export class FolderOrganizerScopeModal extends Modal {
   private progressPath?: HTMLElement;
   private progressFailed?: HTMLElement;
   private progressIndicator?: HTMLProgressElement;
+  private options: OrganizationAnalysisOptions = { evaluateFolder: true, evaluateTags: true };
+  private optionControls: HTMLInputElement[] = [];
+  private analysisDisclosure?: HTMLElement;
+  private payloadDisclosure?: HTMLElement;
+  private requestDisclosure?: HTMLElement;
 
   /** 将来のReviewへ渡すexact result。操作中のmemoryだけに保持し、選択権限は付与しない。 */
   getAnalysisResult(): FolderOrganizerAnalysisResult | undefined {
@@ -140,22 +147,57 @@ export class FolderOrganizerScopeModal extends Modal {
       this.phase = "previewed";
       this.contentEl.createEl("p", { text: `Selected folder: ${this.selected.rootFolderPath}` });
       this.contentEl.createEl("p", { text: `Scope: ${this.selected.includeSubfolders ? "Include subfolders" : "This folder only"}` });
-      this.contentEl.createEl("p", { text: "Analysis: Folder suggestions + Tag suggestions" });
-      this.contentEl.createEl("p", { text: "Analyzing these notes sends note titles, Vault-relative note paths, Markdown bodies, candidate folder paths, and existing Vault Tag candidates to TypeSafe and may use TypeSafe-managed credits." });
-      this.contentEl.createEl("p", { text: "Folder then Tag analysis can make up to 2 TypeSafe requests per fully analyzed note. Failures or cancellation may produce fewer requests." });
+      const analysisOptions = this.contentEl.createEl("fieldset");
+      analysisOptions.createEl("legend", { text: "Analysis options:" });
+      for (const [key, text] of [["evaluateFolder", "Folder suggestions"], ["evaluateTags", "Tag suggestions"]] as const) {
+        const label = analysisOptions.createEl("div").createEl("label");
+        const checkbox = label.createEl("input", { type: "checkbox" });
+        checkbox.checked = this.options[key];
+        this.optionControls.push(checkbox);
+        checkbox.addEventListener("change", () => {
+          if (!this.active() || this.phase !== "previewed") return;
+          this.options = { ...this.options, [key]: checkbox.checked };
+          this.updateDisclosure();
+        });
+        label.createEl("span", { text });
+      }
+      this.analysisDisclosure = this.contentEl.createEl("p");
+      this.payloadDisclosure = this.contentEl.createEl("p");
+      this.requestDisclosure = this.contentEl.createEl("p");
       this.contentEl.createEl("p", { text: "No changes will be made to your Vault." });
       this.analyzeButton = this.contentEl.createEl("button", { text: "Analyze notes", cls: "mod-cta" });
       this.analyzeButton.addEventListener("click", () => { void this.analyze(); });
+      this.updateDisclosure();
       this.addCloseButton("Cancel");
     } else this.addCloseButton("Close");
   }
 
+  private updateDisclosure(): void {
+    const { evaluateFolder, evaluateTags } = this.options;
+    const valid = evaluateFolder || evaluateTags;
+    this.analyzeButton!.disabled = !valid;
+    this.analysisDisclosure!.setText(valid
+      ? `Analysis: ${[evaluateFolder ? "Folder suggestions" : "", evaluateTags ? "Tag suggestions" : ""].filter(Boolean).join(" + ")}`
+      : stopFeedback["invalid-options"]);
+    const candidates = evaluateFolder && evaluateTags ? "candidate folder paths, and existing Vault Tag candidates and optional descriptions"
+      : evaluateFolder ? "candidate folder paths" : "existing Vault Tag candidates and optional descriptions";
+    this.payloadDisclosure!.setText(valid
+      ? `Analyzing these notes sends note titles, Vault-relative note paths, Markdown bodies, ${candidates} to TypeSafe and may use TypeSafe-managed credits.` : "");
+    this.requestDisclosure!.setText(valid
+      ? `${evaluateFolder && evaluateTags ? "Folder then Tag analysis can make up to 2 TypeSafe requests (1 Folder + 1 Tag)"
+        : `Analysis can make up to 1 ${evaluateFolder ? "Folder" : "Tag"} TypeSafe request`} per fully analyzed note. Failures or cancellation may produce fewer requests.` : "");
+  }
+
   private async analyze(): Promise<void> {
     if (!this.active() || this.phase !== "previewed" || !this.previewTargets) return;
+    if (!this.options.evaluateFolder && !this.options.evaluateTags) return;
+    const targets = this.previewTargets;
+    const options = Object.freeze({ evaluateFolder: this.options.evaluateFolder, evaluateTags: this.options.evaluateTags });
     // await前に消費し、double click・Enter・旧handlerからの重複実行を防ぐ。
     this.phase = "analyzing";
     this.analyzeButton!.disabled = true;
     this.analyzeButton = undefined;
+    this.clearOptionsUI();
     const controller = new AbortController();
     this.analysisController = controller;
     this.contentEl.empty();
@@ -168,7 +210,7 @@ export class FolderOrganizerScopeModal extends Modal {
     this.stopButton.addEventListener("click", () => this.stop());
     this.addCloseButton("Close");
     try {
-      const result = await this.analysis.analyze(this.previewTargets, controller.signal, progress => {
+      const result = await this.analysis.analyze(targets, options, controller.signal, progress => {
         if (!this.active() || this.analysisController !== controller || (this.phase !== "analyzing" && this.phase !== "stopping")) return;
         this.progress = progress;
         this.progressCounts!.setText(`${progress.processed} / ${progress.total} processed`);
@@ -225,6 +267,14 @@ export class FolderOrganizerScopeModal extends Modal {
     this.progressIndicator = undefined;
   }
 
+  private clearOptionsUI(): void {
+    for (const control of this.optionControls) control.disabled = true;
+    this.optionControls = [];
+    this.analysisDisclosure = undefined;
+    this.payloadDisclosure = undefined;
+    this.requestDisclosure = undefined;
+  }
+
   private disposeOperation(): void {
     this.opened = false;
     this.operation.abort();
@@ -235,6 +285,7 @@ export class FolderOrganizerScopeModal extends Modal {
     this.progress = undefined;
     this.previewButton = undefined;
     this.analyzeButton = undefined;
+    this.clearOptionsUI();
     this.clearProgressUI();
     this.ownerSignal.removeEventListener("abort", this.closeFromOwner);
   }
