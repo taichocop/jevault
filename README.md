@@ -22,7 +22,7 @@ Jevault suggests existing destination folders. You can explicitly select a sugge
 
 Jevault uses the TypeSafe API for classification, so it does not provide an offline classification mode.
 
-Each classification, Tag Suggest, or explicit **Retry** request that reaches TypeSafe consumes TypeSafe-managed credits from your account. Depending on your credit balance, you may need to purchase credits from TypeSafe and incur TypeSafe charges. TypeSafe may offer promotional credits, but it controls their availability and terms; Jevault does not guarantee them. See [TypeSafe's current terms](https://typesafe.ai/legal/mca) and [pricing information](https://typesafe.ai/) for details.
+Each classification, Tag Suggest, Folder Organizer **Analyze notes**, or explicit **Retry** request that reaches TypeSafe consumes TypeSafe-managed credits from your account. Depending on your credit balance, you may need to purchase credits from TypeSafe and incur TypeSafe charges. TypeSafe may offer promotional credits, but it controls their availability and terms; Jevault does not guarantee them. See [TypeSafe's current terms](https://typesafe.ai/legal/mca) and [pricing information](https://typesafe.ai/) for details.
 
 ## Setup
 
@@ -67,17 +67,23 @@ Freshness warnings explain when suggestions may be based on changed or unknown n
 
 Manual Tag Apply is local and makes no provider request or Secret lookup. It adds only selected suggested tags through Obsidian's frontmatter API, preserving existing supported tags and unrelated fields. Once that API starts, closing or unloading the modal cannot undo the operation; it completes without automatic retry or rollback, and closed UI receives no late notification. There is no automatic Tag mutation, free-form/new Tag generation, or **Analyze again** action. Opening, selecting, and reviewing confirmation alone change no note.
 
-### Folder Organizer preview
+### Folder Organizer Preview and Analyze
 
 Right-click a folder in Explorer and select **Jevault: Organize notes in this folder**. Choose **This folder only** or **Include subfolders**, then select **Preview notes** to see the Markdown target count. Each preview is read-only and runs once; **Cancel**, **Esc**, or closing before Preview starts no collection. Ignored folders and the current Obsidian configuration directory are excluded; Inbox remains eligible as a source.
 
-Folder Organizer currently previews scope and Markdown target count only. It requires no API key, reads no note bodies, and makes no provider request or Vault changes. Folder/Tag analysis, Review, and Apply are not available from this entry.
+**Preview notes** is entirely local: no note body reads, provider requests, Secret lookups, or Vault changes. A successful non-empty Preview retains the exact target objects and order for this operation. Notes added after Preview are not included; changed, deleted, moved, or replaced targets fail safely without recollection or active-note fallback.
+
+Review the selected folder, scope, count, and external-data disclosure, then explicitly select **Analyze notes**. This starts one sequential Folder-then-Tag analysis of those exact Preview targets. Note titles, Vault-relative paths, Markdown bodies, candidate folder paths, and existing Vault Tag candidates may be sent to TypeSafe. TypeSafe-managed credits may be used: the current pipeline can make up to 1 Folder request + 1 Tag request, or up to 2 requests per fully analyzed note. Failures or cancellation may produce fewer requests; no fixed cost or credit amount is promised.
+
+Progress shows processed/total, failed count, and current path. **Stop** requests cancellation and keeps the Modal open while in-flight work settles, then shows the cancelled summary. **Close**, **Esc**, the close button, or plugin unload cancels and disposes the UI without late results. Completed, stopped, and cancelled summaries retain truthful counts; completed does not mean every note succeeded. Analysis and results remain read-only, are kept only in operation memory, and make no Vault changes. Reopen Folder Organizer for a fresh explicit analysis; there is no automatic analysis or retry.
+
+Review and Apply are not available from this entry. Independent Folder/Tag Analysis Options remain deferred to a separate bounded v0.5 follow-up; this flow does not complete all v0.5 requirements.
 
 ## Privacy and external services
 
-Jevault uses TypeSafe, a third-party service, to classify notes. When you explicitly run **Jevault: Classify current note**, **Jevault: Suggest tags for current note**, or select **Retry**, Jevault may send the following data to the TypeSafe API:
+Jevault uses TypeSafe, a third-party service, to classify notes. When you explicitly run **Jevault: Classify current note**, **Jevault: Suggest tags for current note**, select **Retry**, or select Folder Organizer **Analyze notes**, Jevault may send the following data to the TypeSafe API:
 
-- The active note title
+- The analyzed note title (the active note for single-note commands, or an exact Preview target for Folder Organizer)
 - The Vault-relative note path
 - The full Markdown note body
 - Candidate folder paths for folder classification

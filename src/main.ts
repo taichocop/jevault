@@ -25,6 +25,8 @@ import { TagSuggestionGrantIssuer } from "./tags/tag-suggestion-grant";
 import { TagApplyService } from "./tags/tag-apply-service";
 import { FolderOrganizerEntryController } from "./organizer/folder-organizer-entry";
 import { TargetFileCollector } from "./organizer/target-file-collector";
+import { OrganizationTargetReader } from "./organizer/organization-target-reader";
+import { FolderOrganizerService } from "./organizer/folder-organizer-service";
 
 export default class JevaultPlugin extends Plugin {
   settings: JevaultSettings = loadSettings(undefined);
@@ -38,12 +40,6 @@ export default class JevaultPlugin extends Plugin {
 
   async onload(): Promise<void> {
     this.settings = loadSettings(await this.loadData());
-    this.folderOrganizerEntry = new FolderOrganizerEntryController(
-      this.app, new TargetFileCollector(this.app.vault), () => this.settings,
-    );
-    this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => {
-      this.folderOrganizerEntry?.addToMenu(menu, file);
-    }));
     this.noteService = new NoteService(this.app.workspace, this.app.vault);
     // SecretStorage へのアクセスは専用サービスへ閉じ込め、後続の分類処理から差し替え可能にする。
     this.secretService = new SecretService(this.app.secretStorage);
@@ -93,14 +89,24 @@ export default class JevaultPlugin extends Plugin {
       },
     });
     const tagApplyService = new TagApplyService(this.app.vault, this.app.fileManager);
-    this.tagSuggestionCommand = new TagSuggestionCommand({
-      tagSuggestionService: new TagSuggestionService(
-        this.noteService,
-        new TagDiscoveryService(this.app.vault, this.app.metadataCache),
-        this.secretService,
-        (apiKey) => new TypeSafeAdapter(apiKey),
-        () => this.settings,
+    const tagSuggestionService = new TagSuggestionService(
+      this.noteService,
+      new TagDiscoveryService(this.app.vault, this.app.metadataCache),
+      this.secretService,
+      (apiKey) => new TypeSafeAdapter(apiKey),
+      () => this.settings,
+    );
+    this.folderOrganizerEntry = new FolderOrganizerEntryController(
+      this.app, new TargetFileCollector(this.app.vault), () => this.settings,
+      new FolderOrganizerService(
+        new OrganizationTargetReader(this.app.vault), this.classificationService, tagSuggestionService,
       ),
+    );
+    this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => {
+      this.folderOrganizerEntry?.addToMenu(menu, file);
+    }));
+    this.tagSuggestionCommand = new TagSuggestionCommand({
+      tagSuggestionService,
       existingTags: new ExistingTagSnapshotService(this.app.vault, this.app.metadataCache),
       grantIssuer: new TagSuggestionGrantIssuer(this.app.vault),
       startPreparation: () => new TagApplyPreparationSession(

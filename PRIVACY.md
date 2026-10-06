@@ -4,9 +4,9 @@ Jevault suggests existing Vault folders for the active Markdown note and support
 
 ## Data sent to TypeSafe
 
-TypeSafe is a third-party service separate from Jevault. When you explicitly run **Jevault: Classify current note**, **Jevault: Suggest tags for current note**, or select **Retry**, Jevault may send the following data to the TypeSafe API:
+TypeSafe is a third-party service separate from Jevault. When you explicitly run **Jevault: Classify current note**, **Jevault: Suggest tags for current note**, select **Retry**, or select Folder Organizer **Analyze notes**, Jevault may send the following data to the TypeSafe API:
 
-- The active note title
+- The analyzed note title (the active note for single-note commands, or an exact Preview target for Folder Organizer)
 - The Vault-relative note path
 - The full Markdown note body
 - Candidate folder paths for folder classification
@@ -35,9 +35,17 @@ During an explicit **Tag Suggest** or **Retry** operation, Jevault computes loca
 
 Fingerprints and provenance remain only in local memory. They are not sent to TypeSafe, persisted, logged, shown in the UI, or sent to telemetry. Changed or unknown freshness warns without independently blocking Apply. Readiness, selection, confirmation, and Apply make no TypeSafe request or Secret lookup and do not read the note body again. Apply uses Obsidian's frontmatter API to append missing selected tags; current frontmatter duplicates and original source identity remain strict checks, while inline duplicates are best effort. No automatic Apply, retry, rollback, re-analysis, or telemetry is added.
 
+## Folder Organizer
+
+Folder right-click, scope selection, and **Preview notes** use only local target metadata. They read no note bodies, look up no Secrets, and make no provider requests. A successful Preview captures an exact ordered target set; **Analyze notes** never recollects or includes later-added notes, and never falls back to the active note or folder. Changed/deleted/replaced targets fail safely under exact-target validation.
+
+Only explicit **Analyze notes** starts sequential Folder-then-Tag analysis and may send each exact target's title, Vault-relative path, Markdown body, candidate folder paths, and existing Vault Tag candidate names and optional descriptions to TypeSafe. The current pipeline can make up to 2 TypeSafe requests per fully analyzed note (1 Folder + 1 Tag); failures or cancellation may produce fewer. TypeSafe-managed credits may be used. The key is resolved through SecretService/Obsidian SecretStorage only as required for this explicit analysis.
+
+Analysis makes no Vault mutations. Targets and the exact per-note partial results remain in operation memory and are cleared on close/unload; this flow does not persist results or bodies to settings, a database, or files. Progress and terminal UI contain no raw note body, API key, or provider response. Stop cancels analysis while allowing its truthful summary; close/unload also disposes UI and suppresses late feedback. There is no background analysis, automatic retry, telemetry, Review selection, or Apply in this flow.
+
 ## No Jevault backend
 
-Jevault does not operate its own backend. Classification and Tag Suggest requests go from the plugin to the TypeSafe API.
+Jevault does not operate its own backend. Classification, Tag Suggest, and explicit Folder Organizer analysis requests go from the plugin to the TypeSafe API.
 
 ## Telemetry
 
@@ -45,4 +53,4 @@ Jevault does not implement analytics, tracking, usage telemetry, or crash report
 
 ## API key
 
-The TypeSafe API key is managed through Obsidian SecretStorage. Jevault's plugin settings retain the selected secret reference/name, not a copy of the API key value. The key is resolved only when needed for an explicit classification or Tag Suggest request and is not logged by Jevault.
+The TypeSafe API key is managed through Obsidian SecretStorage. Jevault's plugin settings retain the selected secret reference/name, not a copy of the API key value. The key is resolved only when needed for an explicit classification, Tag Suggest, or Folder Organizer Analyze notes request and is not logged by Jevault.

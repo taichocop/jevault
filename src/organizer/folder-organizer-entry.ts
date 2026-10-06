@@ -4,6 +4,7 @@ import type { JevaultSettings } from "../settings";
 import { OrganizationScope } from "./organization-scope";
 import { FolderOrganizerScopeModal } from "./folder-organizer-scope-modal";
 import type { TargetFileCollector } from "./target-file-collector";
+import type { FolderOrganizerService } from "./folder-organizer-service";
 
 export class FolderOrganizerEntryController {
   private readonly lifetime = new AbortController();
@@ -12,6 +13,7 @@ export class FolderOrganizerEntryController {
     private readonly app: App,
     private readonly collector: Pick<TargetFileCollector, "collect">,
     private readonly getSettings: () => Pick<JevaultSettings, "ignoredFolders">,
+    private readonly analysis: Pick<FolderOrganizerService, "analyze">,
   ) {}
 
   addToMenu(menu: Menu, file: TAbstractFile): void {
@@ -24,7 +26,7 @@ export class FolderOrganizerEntryController {
         const direct = new OrganizationScope(file, false);
         const recursive = new OrganizationScope(file, true);
         new FolderOrganizerScopeModal(
-          this.app, direct, recursive, this.collector, this.getSettings, this.lifetime.signal,
+          this.app, direct, recursive, this.collector, this.getSettings, this.lifetime.signal, this.analysis,
         ).open();
       }));
   }
