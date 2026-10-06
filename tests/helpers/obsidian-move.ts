@@ -36,6 +36,7 @@ export class Element {
     this.children.push(child);
     return child;
   }
+  setText(text: string): void { this.text = text; }
   empty(): void { this.children = []; this.ownerDocument.activeElement = null; }
   addEventListener(event: string, handler: (event: Partial<MouseEvent> & { detail: number }) => void): void { this.handlers.set(event, handler); }
   // Deliberately invoke stale/disabled callbacks to verify the application guard too.

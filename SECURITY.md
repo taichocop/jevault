@@ -20,6 +20,12 @@ If that private reporting flow is unavailable, do not include sensitive vulnerab
 
 Intentional Vault mutations are limited to explicitly confirmed **Manual Move** and **Manual Tag Apply**. Selection, suggestion completion, plugin load, and settings changes never authorize mutation.
 
+### Folder Organizer analysis
+
+Preview is local and reads no note bodies, looks up no Secrets, makes no TypeSafe requests, and performs no Vault mutations. Only explicit **Analyze notes** after a non-empty Preview authorizes analysis of the exact captured target set/order. No recollection, active-note fallback, or path-only rebinding is permitted. Folder-then-Tag analysis is read-only; suggestions and completion do not confer selection, confirmation, or mutation authority.
+
+Stop aborts a dedicated analysis signal while keeping the Modal alive until the service settles. Close/Esc/X and unload abort analysis and dispose UI, suppressing late progress/results. Results stay in operation memory, without persistence, raw error/body/Secret/provider display, background analysis, or automatic retry. Existing Manual Move and Manual Tag Apply remain the only mutation paths.
+
 ### Manual Move
 
 Jevault supports a manual move only after the user selects a displayed candidate and explicitly confirms **Move**.
@@ -46,7 +52,7 @@ Vault access must use Obsidian APIs. Tests must never operate on a real user Vau
 
 ## Network safety
 
-Jevault communicates with TypeSafe only after the user explicitly runs **Jevault: Classify current note**, **Jevault: Suggest tags for current note**, or selects **Retry**. Manual Move and Manual Tag Apply make no additional TypeSafe request; Manual Tag Apply also makes no additional Secret lookup. It does not implement background classification, background Tag Suggest, background retry, automatic re-analysis, automatic Apply, automatic upload, telemetry, or analytics.
+Jevault communicates with TypeSafe only after the user explicitly runs **Jevault: Classify current note**, **Jevault: Suggest tags for current note**, selects **Retry**, or selects Folder Organizer **Analyze notes**. Manual Move and Manual Tag Apply make no additional TypeSafe request; Manual Tag Apply also makes no additional Secret lookup. It does not implement background classification, background Tag Suggest, background Folder Organizer analysis, background retry, automatic re-analysis, automatic Apply, automatic upload, telemetry, or analytics.
 
 These explicit TypeSafe requests may include the note title, Vault-relative note path, full Markdown note body, candidate folder paths for Folder Suggest, and existing Vault Tag candidate names and optional Tag candidate descriptions for Tag Suggest. See [PRIVACY.md](PRIVACY.md) for the current disclosure.
 
