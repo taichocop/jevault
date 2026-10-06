@@ -37,13 +37,14 @@ export class FolderOrganizerScopeModal extends Modal {
   private static nextScopeId = 0;
   private readonly scopeName = `jevault-organizer-scope-${FolderOrganizerScopeModal.nextScopeId++}`;
   private opened = false;
-  private phase: "selecting" | "pending" | "previewed" | "analyzing" | "stopping" | "terminal" = "selecting";
+  private phase: "selecting" | "pending" | "previewed" | "analyzing" | "stopping" | "terminal" | "reviewing" = "selecting";
   private selected: OrganizationScope;
   private readonly operation = new AbortController();
   private readonly closeFromOwner = (): void => this.close();
   private previewButton?: HTMLButtonElement;
   private analyzeButton?: HTMLButtonElement;
   private stopButton?: HTMLButtonElement;
+  private reviewButton?: HTMLButtonElement;
   private previewTargets?: readonly OrganizationTarget[];
   private analysisController?: AbortController;
   private analysisResult?: FolderOrganizerAnalysisResult;
@@ -72,15 +73,17 @@ export class FolderOrganizerScopeModal extends Modal {
     private readonly getSettings: () => Pick<JevaultSettings, "ignoredFolders">,
     private readonly ownerSignal: AbortSignal,
     private readonly analysis: Pick<FolderOrganizerService, "analyze">,
+    private readonly openReview: (result: FolderOrganizerAnalysisResult) => boolean,
   ) {
     super(app);
     this.selected = direct;
     this.scope.register([], "Enter", event => {
       const focused = this.contentEl.ownerDocument.activeElement;
-      if (!this.active() || !focused || (focused !== this.previewButton && focused !== this.analyzeButton && focused !== this.stopButton)) return;
+      if (!this.active() || !focused || (focused !== this.previewButton && focused !== this.analyzeButton && focused !== this.stopButton && focused !== this.reviewButton)) return;
       if (!event.repeat && !event.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
         if (focused === this.previewButton) this.preview();
         else if (focused === this.analyzeButton) void this.analyze();
+        else if (focused === this.reviewButton) this.reviewResults();
         else this.stop();
       }
       return false;
@@ -229,6 +232,10 @@ export class FolderOrganizerScopeModal extends Modal {
       if (result.status === "stopped") this.contentEl.createEl("p", { text: stopFeedback[result.reason] });
       if (result.status === "cancelled") this.contentEl.createEl("p", { text: "No further notes were analyzed." });
       this.contentEl.createEl("p", { text: "No changes were made to your Vault." });
+      if (result.status === "completed") {
+        this.reviewButton = this.contentEl.createEl("button", { text: "Review results", cls: "mod-cta" });
+        this.reviewButton.addEventListener("click", () => this.reviewResults());
+      }
       this.addCloseButton("Close");
     } catch {
       if (!this.active() || this.analysisController !== controller) return;
@@ -247,6 +254,21 @@ export class FolderOrganizerScopeModal extends Modal {
   private renderCounts(progress: FolderOrganizerProgress): void {
     this.contentEl.createEl("p", { text: `${progress.processed} / ${progress.total} notes processed.` });
     this.contentEl.createEl("p", { text: `${progress.failed} failed.` });
+  }
+
+  private reviewResults(): void {
+    if (!this.active() || this.phase !== "terminal" || this.analysisResult?.status !== "completed") return;
+    const result = this.analysisResult;
+    this.phase = "reviewing";
+    this.reviewButton!.disabled = true;
+    try {
+      // cleanup前にexact referenceとlocal snapshotの所有権をReviewへ渡す。
+      if (this.openReview(result)) { this.close(); return; }
+    } catch { /* raw local例外は表示しない。 */ }
+    if (!this.active()) return;
+    this.contentEl.empty();
+    this.contentEl.createEl("p", { text: "Review is unavailable. No changes were made to your Vault.", attr: { role: "status" } });
+    this.addCloseButton("Close");
   }
 
   private stop(): void {
@@ -285,6 +307,7 @@ export class FolderOrganizerScopeModal extends Modal {
     this.progress = undefined;
     this.previewButton = undefined;
     this.analyzeButton = undefined;
+    this.reviewButton = undefined;
     this.clearOptionsUI();
     this.clearProgressUI();
     this.ownerSignal.removeEventListener("abort", this.closeFromOwner);

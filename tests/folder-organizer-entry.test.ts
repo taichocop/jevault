@@ -27,6 +27,12 @@ import { ClassificationService } from "../src/classification/classification-serv
 import { TagSuggestionService } from "../src/tags/tag-suggestion-service";
 import type { FolderOrganizerAnalysisResult, FolderOrganizerProgress, OrganizationAnalysisStopReason } from "../src/organizer/organization-analysis-result";
 import type { OrganizationTarget } from "../src/organizer/target-file-collector";
+import { OrganizationReviewService } from "../src/organizer/organization-review-service";
+import { OrganizationReviewModal } from "../src/organizer/organization-review-modal";
+import { OrganizationReviewSession } from "../src/organizer/organization-review-session";
+import { ExistingTagSnapshotService } from "../src/tags/existing-tag-snapshot";
+import { TagDiscoveryService } from "../src/tags/tag-discovery-service";
+import { VaultService } from "../src/vault-service";
 
 import JevaultPlugin from "../src/main";
 import { FolderOrganizerScopeModal } from "../src/organizer/folder-organizer-scope-modal";
@@ -331,11 +337,11 @@ describe("Folder Organizer explicit analysis UI (#97)", () => {
     button(modal, "Close").click(); expect(modal.getAnalysisResult()).toBeUndefined(); h.plugin.onunload();
   });
 
-  it("completed with failures reports counts without promising all-success, retry, review or Apply", async () => {
+  it("completed with failures reports truthful counts and offers explicit Review without retry or Apply", async () => {
     const h = analysisHarness(); await h.plugin.onload(); const modal = h.open();
     button(modal, "Preview notes").click(); const analyze = button(modal, "Analyze notes"); analyze.click();
     h.pending.resolve(completed); await flush();
-    expect(text(modal)).toEqual(["Analysis complete.", "2 / 2 notes processed.", "1 failed.", "No changes were made to your Vault.", "Close"]);
+    expect(text(modal)).toEqual(["Analysis complete.", "2 / 2 notes processed.", "1 failed.", "No changes were made to your Vault.", "Review results", "Close"]);
     expect(modal.getAnalysisResult()).toBe(completed); analyze.click(); expect(h.analyze).toHaveBeenCalledOnce();
     h.plugin.onunload();
   });
@@ -509,7 +515,7 @@ describe("Folder Organizer production service composition", () => {
       expect(docs[name]).toContain("operation memory");
     }
     expect(docs["README.md"]).toContain("both enabled by default");
-    expect(docs["README.md"]).toContain("Review and Apply are not available");
+    expect(docs["README.md"]).toContain("Apply remains unavailable");
     expect(docs["PRIVACY.md"]).toContain("does not persist results or bodies");
   });
 });
@@ -576,5 +582,87 @@ describe("Folder Organizer analysis option controls (#99)", () => {
     expect(text(modal)).toContain("No further notes were analyzed.");
     expect(h.analyze.mock.calls[0][1]).toEqual(options); expect(h.collect).toHaveBeenCalledOnce();
     button(modal, "Close").click(); expect(modal.getAnalysisResult()).toBeUndefined(); h.plugin.onunload();
+  });
+});
+
+function reviewHarness() {
+  const h = analysisHarness();
+  const prepare = vi.spyOn(OrganizationReviewService.prototype, "prepare");
+  const folders = vi.spyOn(VaultService.prototype, "getAvailableFolderPaths").mockReturnValue(["Dest", "Manual"]);
+  const tags = vi.spyOn(TagDiscoveryService.prototype, "discover").mockReturnValue([{ id: "1", name: "#Ruby" }]);
+  const snapshot = vi.spyOn(ExistingTagSnapshotService.prototype, "snapshot").mockReturnValue({ status: "available", names: ["#current"] });
+  const opened: OrganizationReviewModal[] = [];
+  vi.spyOn(OrganizationReviewModal.prototype, "open").mockImplementation(function (this: OrganizationReviewModal) {
+    Object.assign(this, { contentEl: new RadioElement() }); opened.push(this); this.onOpen();
+  });
+  const terminal = async (status: "completed" | "stopped" | "cancelled" = "completed") => {
+    await h.plugin.onload(); const modal = h.open(); button(modal, "Preview notes").click(); button(modal, "Analyze notes").click();
+    const target = h.analyze.mock.calls[0][0][0];
+    const note = Object.freeze({ source: target.source, snapshot: target.snapshot, status: "success" as const,
+      folder: Object.freeze({ status: "not-run" as const, reason: "disabled" as const }),
+      tags: Object.freeze({ status: "success" as const, value: Object.freeze({ status: "success" as const, source: target.source,
+        noteTitle: "Synthetic", suggestions: Object.freeze([]) }) }) });
+    const analysis: FolderOrganizerAnalysisResult = Object.freeze({ ...(status === "stopped" ? { status, reason: "network" as const } : { status }),
+      results: Object.freeze([note]), progress: Object.freeze({ total: 1, processed: 1, failed: 0 }) });
+    h.pending.resolve(analysis); await flush(); return { modal, analysis };
+  };
+  return { ...h, prepare, folders, tags, snapshot, reviews: opened, terminal };
+}
+
+describe("Review entry ownership/local-only production wiring (#101 tests 1–14, 62–65, 88)", () => {
+  it.each(["completed", "stopped", "cancelled"] as const)("%s exposes Review only when eligible, never opens it automatically", async status => {
+    const h = reviewHarness(); const { modal } = await h.terminal(status);
+    expect(!!button(modal, "Review results")).toBe(status === "completed");
+    expect(h.prepare).not.toHaveBeenCalled(); expect(h.reviews).toEqual([]); expect(h.folders).not.toHaveBeenCalled();
+    h.plugin.onunload();
+  });
+  it.each(["click", "Enter"])("%s hands off exact authority once before Analyze cleanup and invalidates all old handlers", async activation => {
+    const h = reviewHarness(); const { modal, analysis } = await h.terminal(); const baseline = JSON.stringify(analysis);
+    const review = button(modal, "Review results"); review.focus();
+    if (activation === "Enter") press(modal, "Enter"); else review.click();
+    const session = h.prepare.mock.results[0].value as OrganizationReviewSession;
+    expect(h.prepare).toHaveBeenCalledOnce(); expect(h.prepare.mock.calls[0][0]).toBe(analysis);
+    expect(session.getAnalysisResult()).toBe(analysis); expect(modal.getAnalysisResult()).toBeUndefined(); expect(text(modal)).toEqual([]);
+    const ui = h.reviews[0]; expect(ui).toBeDefined();
+    const elements = () => (ui.contentEl as unknown as RadioElement).all() as RadioElement[];
+    expect(elements().map(e => e.text)).toContain("Inbox/A.md");
+    review.click(); review.focus(); press(modal, "Enter"); h.publish({ total: 88, processed: 77, failed: 66 }); modal.onClose(); modal.onOpen();
+    expect(h.prepare).toHaveBeenCalledOnce(); expect(h.analyze).toHaveBeenCalledOnce(); expect(h.collect).toHaveBeenCalledOnce();
+    expect(session.getAnalysisResult()).toBe(analysis);
+    elements().find(e => e.tag === "input")!.change();
+    elements().find(e => e.text === "Finish review")!.click();
+    expect(session.getResult()?.reviewed[0].source).toBe(analysis.results[0].source);
+    expect(session.getResult()?.reviewed[0].snapshot).toBe(analysis.results[0].snapshot);
+    expect(JSON.stringify(analysis)).toBe(baseline); h.plugin.onunload(); expect(session.getAnalysisResult()).toBeUndefined();
+  });
+  it.each(["open", "navigate", "select", "finish", "close", "unload"])("%s makes zero provider, Secret, body, recollection, re-analysis and mutation calls", async action => {
+    const h = reviewHarness(); const { modal } = await h.terminal();
+    const logs = [vi.spyOn(console, "log"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")];
+    const fetch = vi.spyOn(globalThis, "fetch"); const collectCount = h.collect.mock.calls.length, analysisCount = h.analyze.mock.calls.length;
+    button(modal, "Review results").click();
+    const session = h.prepare.mock.results[0].value as OrganizationReviewSession, ui = h.reviews[0];
+    const controls = () => (ui.contentEl as unknown as RadioElement).all() as RadioElement[];
+    if (action === "navigate") { controls().find(e => e.text === "Next")!.click(); controls().find(e => e.text === "Previous")!.click(); }
+    if (action === "select" || action === "finish") { session.selectFolder(0, { kind: "keep-current" }); session.selectTag(0, "#Ruby", true); }
+    if (action === "finish") session.finish(); if (action === "close") ui.close(); if (action === "unload") h.plugin.onunload();
+    expect(h.collect).toHaveBeenCalledTimes(collectCount); expect(h.analyze).toHaveBeenCalledTimes(analysisCount);
+    expect(h.forbidden).not.toHaveBeenCalled(); expect(h.getSecret).not.toHaveBeenCalled(); expect(h.vault.read).not.toHaveBeenCalled();
+    expect(provider.classify).not.toHaveBeenCalled(); expect(provider.evaluate).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
+    for (const log of logs) expect(log).not.toHaveBeenCalled();
+    expect((h.plugin as unknown as { saveData: ReturnType<typeof vi.fn> }).saveData).not.toHaveBeenCalled();
+    expect(h.folders).toHaveBeenCalledOnce(); expect(h.tags).toHaveBeenCalledOnce(); expect(h.snapshot).toHaveBeenCalledOnce(); h.plugin.onunload();
+  });
+  it.each(["folders", "tags", "snapshot"] as const)("%s preparation failure shows sanitized unavailable feedback with no intent or retry", async boundary => {
+    const h = reviewHarness(); const { modal } = await h.terminal();
+    ({ folders: h.folders, tags: h.tags, snapshot: h.snapshot })[boundary].mockImplementation(() => { throw new Error("synthetic-private-path"); });
+    const review = button(modal, "Review results"); review.click(); review.click();
+    expect(text(modal)).toEqual(["Review is unavailable. No changes were made to your Vault.", "Close"]);
+    expect(h.prepare).toHaveBeenCalledOnce(); expect(h.reviews).toEqual([]); expect(h.analyze).toHaveBeenCalledOnce();
+    expect(h.forbidden).not.toHaveBeenCalled(); h.plugin.onunload();
+  });
+  it("unload during capture closes Analyze and creates no orphan Review", async () => {
+    const h = reviewHarness(); const { modal } = await h.terminal(); h.folders.mockImplementation(() => { h.plugin.onunload(); return ["Dest"]; });
+    button(modal, "Review results").click(); expect(h.reviews).toEqual([]); expect(text(modal)).toEqual([]);
+    expect(h.prepare.mock.results[0].value).toBeUndefined();
   });
 });

@@ -67,7 +67,7 @@ Freshness warnings explain when suggestions may be based on changed or unknown n
 
 Manual Tag Apply is local and makes no provider request or Secret lookup. It adds only selected suggested tags through Obsidian's frontmatter API, preserving existing supported tags and unrelated fields. Once that API starts, closing or unloading the modal cannot undo the operation; it completes without automatic retry or rollback, and closed UI receives no late notification. There is no automatic Tag mutation, free-form/new Tag generation, or **Analyze again** action. Opening, selecting, and reviewing confirmation alone change no note.
 
-### Folder Organizer Preview and Analyze
+### Folder Organizer Preview, Analyze, and Review
 
 Right-click a folder in Explorer and select **Jevault: Organize notes in this folder**. Choose **This folder only** or **Include subfolders**, then select **Preview notes** to see the Markdown target count. Each preview is read-only and runs once; **Cancel**, **Esc**, or closing before Preview starts no collection. Ignored folders and the current Obsidian configuration directory are excluded; Inbox remains eligible as a source.
 
@@ -81,7 +81,15 @@ Note titles, Vault-relative paths, and Markdown bodies may be sent to TypeSafe f
 
 Progress shows processed/total, failed count, and current path. **Stop** requests cancellation and keeps the Modal open while in-flight work settles, then shows the cancelled summary. **Close**, **Esc**, the close button, or plugin unload cancels and disposes the UI without late results. Completed, stopped, and cancelled summaries retain truthful counts; completed does not mean every note succeeded. Analysis and results remain read-only, are kept only in operation memory, and make no Vault changes. Reopen Folder Organizer for a fresh explicit analysis; there is no automatic analysis or retry.
 
-Review and Apply are not available from this entry; this flow does not complete all v0.5 requirements.
+After a **completed** analysis, explicitly select **Review results**. Review never opens automatically; stopped/cancelled runs cannot enter Review. The exact analysis results transfer to Review before the Analyze UI closes, without recollection or re-analysis. Target-local failed notes remain visible as unavailable and have no selection controls.
+
+Review is entirely local: no TypeSafe request, Secret lookup, note body re-read, or Vault mutation. It captures eligible existing folders, existing Vault tags, and current tags from each exact note's metadata once at entry. Missing metadata is shown as unknown. AI suggestions retain their analysis order and probabilities; stale suggestions remain visible but cannot be selected unless their exact path/name is still in the captured universe.
+
+Use **Previous**/**Next** to review each note. Folder choices start unreviewed: explicitly select **Keep current folder**, an available AI suggestion, or **Choose another existing folder**. Keep current is always available, including Inbox, excluded folders, and Vault root. Tags also start unreviewed with all suggestions unchecked. Select suggested existing tags or use **Add existing tag**; 0..N tags are supported, with semantic duplicates prevented while preserving the selected existing spelling. Current tags are advisory; they are never automatically selected or removed. Disabled AI phases still permit manual choices. Draft choices persist across navigation.
+
+**Finish review** requires an explicit Folder intent for every reviewable note. Failed notes do not block completion; zero reviewable notes cannot finish. Finish preserves selected tags and explicitly confirms zero tags for untouched Tag controls. It creates an immutable result in operation memory, retaining the original note source, snapshot, and separate analysis. The terminal message is **Review complete. No changes were made to your Vault.** Close/Esc/X before Finish discards the draft; closing or plugin unload clears operation memory and invalidates old handlers.
+
+**Apply remains unavailable.** Review selection and completion grant no mutation authority. This flow does not complete all v0.5 requirements.
 
 ## Privacy and external services
 
