@@ -64,6 +64,14 @@ Jevault supports a manual move only after the user selects a displayed candidate
 
 Vault access must use Obsidian APIs. Tests must never operate on a real user Vault.
 
+### Shared mutation coordination
+
+Manual Move and Manual Tag Apply use one memory-only Jevault mutation domain keyed by the actual Vault object, including across distinct service instances. Source and target paths share one NFC-normalized, conservative lowercase comparison namespace; exact source TFile identity also remains leased across a rename. Same-source, same-target, and source-target crossing conflicts fail immediately as busy, with no wait queue. Unrelated notes and targets can proceed concurrently; this is not a global Vault mutex.
+
+Coordination follows each feature's existing authorization boundary and grants no mutation authority. Accepted Tag confirmations remain single-use even when busy. Leases are acquired synchronously without partial reservations, released idempotently in finally, and held until the actual processFrontMatter or renameFile Promise settles, including after cancellation. No lock state is persisted.
+
+This excludes Jevault-vs-Jevault overlap only. It does not lock editor, other-plugin, filesystem, OS, or sync-provider writes. Existing source, destination, collision, lifetime, and current-frontmatter validation remains mandatory. It provides no transaction isolation or rollback guarantee and adds no Organizer Apply capability.
+
 ## Network safety
 
 Jevault communicates with TypeSafe only after the user explicitly runs **Jevault: Classify current note**, **Jevault: Suggest tags for current note**, selects **Retry**, or selects Folder Organizer **Analyze notes**. Manual Move and Manual Tag Apply make no additional TypeSafe request; Manual Tag Apply also makes no additional Secret lookup. It does not implement background classification, background Tag Suggest, background Folder Organizer analysis, background retry, automatic re-analysis, automatic Apply, automatic upload, telemetry, or analytics.

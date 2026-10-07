@@ -1,6 +1,9 @@
 import { TFile, type FileManager, type Vault } from "obsidian";
 
 import { NoteSource } from "../../src/note-source";
+import {
+  acquireVaultMutationLease, vaultMutationPathKey, type VaultMutationLease,
+} from "../../src/vault-mutation-coordinator";
 import { createMovePlan, moveValidatedSource } from "../../src/note-move-service";
 import { addSelectedFrontmatterTags } from "../../src/tags/additive-frontmatter-tags";
 import type { NoteSnapshot } from "../../src/organizer/target-file-collector";
@@ -64,27 +67,13 @@ export function captureBaseline(vault: SpikeVault, source: NoteSource): Readonly
   return file ? Object.freeze({ path: source.path, mtime: file.stat.mtime, size: file.stat.size }) : undefined;
 }
 
-interface Domain { paths: Set<string>; files: Set<TFile> }
-const domains = new WeakMap<SpikeVault, Domain>();
-export const mutationKey = (path: string): string => path.normalize("NFC").toLowerCase();
-export interface MutationLease { release(): void }
-/** 全serviceのfuture integration用prototype。pathとidentityを同じVault domainで排他する。 */
+export const mutationKey = vaultMutationPathKey;
+export type MutationLease = VaultMutationLease;
+/** #103 runnerもproductionの排他を使い、別のlock domainを作らない。 */
 export function acquireLease(vault: SpikeVault, source: NoteSource, targetPath?: string): MutationLease | undefined {
-  const domain = domains.get(vault) ?? { paths: new Set<string>(), files: new Set<TFile>() };
-  domains.set(vault, domain);
-  const keys = [...new Set([source.path, ...(targetPath === undefined ? [] : [targetPath])].map(mutationKey))];
   const file = vault.getAbstractFileByPath(source.path);
   const identity = file instanceof TFile && source.matches(file) ? file : undefined;
-  if (keys.some(key => domain.paths.has(key)) || (identity && domain.files.has(identity))) return undefined;
-  keys.forEach(key => domain.paths.add(key));
-  if (identity) domain.files.add(identity);
-  let released = false;
-  return { release: () => {
-    if (released) return;
-    released = true;
-    keys.forEach(key => domain.paths.delete(key));
-    if (identity) domain.files.delete(identity);
-  } };
+  return acquireVaultMutationLease(vault, source.path, targetPath, identity);
 }
 export async function underLease<T>(vault: SpikeVault, source: NoteSource, target: string | undefined, action: () => Promise<T>): Promise<T | "busy"> {
   const lease = acquireLease(vault, source, target);

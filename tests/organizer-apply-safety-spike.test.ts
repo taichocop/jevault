@@ -295,42 +295,41 @@ describe("#103 additive Tag and destination evidence 16–24, 29–34", () => {
   });
 });
 
-describe("#103 real current lock gap and proposed integration evidence 35–46", () => {
-  it("current Manual Tag/Move locks permit same-source overlap", async () => {
+describe("#103 shared production coordination regression evidence 35–46", () => {
+  it("Manual Tag/Move shared leases block same-source overlap", async () => {
     const h = harness(), gate = deferred(), token = manualConfirmation(h);
     h.manager.processFrontMatter.mockImplementationOnce(async (_f, callback) => { callback(h.frontmatter); await gate.promise; });
     const tag = new TagApplyService(h.vault, h.manager).apply({ confirmation: token }, h.controller.signal);
     await flush(); expect(h.manager.processFrontMatter).toHaveBeenCalledOnce();
     const move = await new NoteMoveService(h.vault, h.manager).move(h.source, ["Dest"], "Dest", h.controller.signal);
-    expect(move.status).toBe("moved"); expect(h.manager.renameFile).toHaveBeenCalledOnce();
+    expect(move).toEqual({ status: "failure", reason: "busy" }); expect(h.manager.renameFile).not.toHaveBeenCalled();
     gate.resolve(); await tag;
   });
   it.each(["manual-move/organizer-tag", "manual-tag/organizer-move", "organizer-tag/organizer-move", "organizer/organizer", "manual-move/manual-move", "manual-tag/manual-tag"])(
-    "future shared wrappers exclude %s across service instances around actual APIs", async schedule => {
+    "shared production leases exclude %s across service instances around actual APIs", async schedule => {
       const h = harness(), gate = deferred();
       const manualTag = () => new TagApplyService(h.vault, h.manager).apply({ confirmation: manualConfirmation(h) }, h.controller.signal);
       const manualMove = () => new NoteMoveService(h.vault, h.manager).move(h.source, ["Dest"], "Dest", h.controller.signal);
       const firstMove = schedule.startsWith("manual-move");
       if (firstMove) h.manager.renameFile.mockImplementationOnce(async () => { await gate.promise; });
       else h.manager.processFrontMatter.mockImplementationOnce(async (_f, callback) => { callback(h.frontmatter); await gate.promise; });
-      const first = schedule.startsWith("organizer") ? h.run()
-        : underLease<unknown>(h.vault, h.source, firstMove ? "Dest/A.md" : undefined, firstMove ? manualMove : manualTag);
+      const first = schedule.startsWith("organizer") ? h.run() : firstMove ? manualMove() : manualTag();
       await flush();
-      const second = schedule.endsWith("manual-move") ? await underLease(h.vault, h.source, "Dest/A.md", manualMove)
-        : schedule.endsWith("manual-tag") ? await underLease(h.vault, h.source, undefined, manualTag) : await h.run();
-      if (typeof second === "string") expect(second).toBe("busy");
-      else if ("results" in second) expect(second.results[0].reason).toBe("busy");
-      else throw new Error("Expected coordinated busy before manual service entry");
+      const second = schedule.endsWith("manual-move") ? await manualMove()
+        : schedule.endsWith("manual-tag") ? await manualTag() : await h.run();
+      if ("results" in second) expect(second.results[0].reason).toBe("busy");
+      else expect(second).toEqual({ status: "failure", reason: "busy" });
       expect(h.manager.processFrontMatter.mock.calls.length + h.manager.renameFile.mock.calls.length).toBe(1);
       gate.resolve(); await first;
-      expect(acquireLease(h.vault, new NoteSource(h.file))).toBeDefined();
+      const fresh = acquireLease(h.vault, new NoteSource(h.file)); expect(fresh).toBeDefined(); fresh?.release();
     },
   );
-  it("current Move instances also do not share their path locks", async () => {
+  it("different Move instances share their source and target leases", async () => {
     const h = harness(), gate = deferred(); h.manager.renameFile.mockImplementation(async () => { await gate.promise; });
     const first = new NoteMoveService(h.vault, h.manager).move(h.source, ["Dest"], "Dest", h.controller.signal);
     const second = new NoteMoveService(h.vault, h.manager).move(h.source, ["Dest"], "Dest", h.controller.signal);
-    expect(h.manager.renameFile).toHaveBeenCalledTimes(2); gate.resolve(); await Promise.all([first, second]);
+    expect(await second).toEqual({ status: "failure", reason: "busy" });
+    expect(h.manager.renameFile).toHaveBeenCalledOnce(); gate.resolve(); await first;
   });
   it("shared Vault path keys cover source/target, case and Unicode aliases; different Vaults remain independent", () => {
     const h = harness(), held = acquireLease(h.vault, h.source, "Dest/é.md")!;
