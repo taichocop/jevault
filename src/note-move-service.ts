@@ -48,6 +48,45 @@ function pathKey(path: string): string {
   return path.normalize("NFC").toLowerCase();
 }
 
+/** 認可とlockの下で共有する境界。検証からrenameFile開始までawaitを置かない。 */
+export async function moveValidatedSource(
+  vault: Pick<Vault, "getAbstractFileByPath">,
+  fileManager: Pick<FileManager, "renameFile">,
+  source: NoteSource,
+  destination: string,
+  signal: AbortSignal,
+  validateRevision: (file: TFile) => boolean = () => true,
+): Promise<MoveResult> {
+  const plan = createMovePlan(source.path, destination);
+  if (plan === null) return { status: "failure", reason: "invalid-destination" };
+  try {
+    const file = vault.getAbstractFileByPath(source.path);
+    if (!(file instanceof TFile) || !source.matches(file) ||
+      file.extension.toLowerCase() !== "md" ||
+      file.name !== source.path.slice(source.path.lastIndexOf("/") + 1)) {
+      return { status: "failure", reason: "source-changed" };
+    }
+    const folder = vault.getAbstractFileByPath(destination);
+    if (!(folder instanceof TFolder) || folder.path !== destination) {
+      return { status: "failure", reason: "destination-missing" };
+    }
+    if (source.path === plan.targetPath) {
+      return { status: "failure", reason: "already-in-folder" };
+    }
+    if (vault.getAbstractFileByPath(plan.targetPath) !== null ||
+      folder.children.some((child) => pathKey(child.name) === pathKey(file.name))) {
+      return { status: "failure", reason: "collision" };
+    }
+    if (!validateRevision(file)) return { status: "failure", reason: "source-changed" };
+    // 最終確認からAPI呼出しまでawaitを挟まない。開始後は取消や独自rollbackを行わない。
+    if (signal.aborted) return { status: "cancelled" };
+    await fileManager.renameFile(file, plan.targetPath);
+    return { status: "moved", destination };
+  } catch {
+    return { status: "failure", reason: "unexpected" };
+  }
+}
+
 /** 確認後の検証と唯一のVault mutationを担当し、active noteやclassifierには依存しない。 */
 export class NoteMoveService {
   private readonly inFlight = new Set<string>();
@@ -74,27 +113,7 @@ export class NoteMoveService {
     }
     keys.forEach((key) => this.inFlight.add(key));
     try {
-      const file = this.vault.getAbstractFileByPath(source.path);
-      if (!(file instanceof TFile) || !source.matches(file) ||
-        file.extension.toLowerCase() !== "md" ||
-        file.name !== source.path.slice(source.path.lastIndexOf("/") + 1)) {
-        return { status: "failure", reason: "source-changed" };
-      }
-      const folder = this.vault.getAbstractFileByPath(destination);
-      if (!(folder instanceof TFolder) || folder.path !== destination) {
-        return { status: "failure", reason: "destination-missing" };
-      }
-      if (source.path === plan.targetPath) {
-        return { status: "failure", reason: "already-in-folder" };
-      }
-      if (this.vault.getAbstractFileByPath(plan.targetPath) !== null ||
-        folder.children.some((child) => pathKey(child.name) === pathKey(file.name))) {
-        return { status: "failure", reason: "collision" };
-      }
-      // 最終確認からAPI呼出しまでawaitを挟まない。開始後は取消や独自rollbackを行わない。
-      if (signal.aborted) return { status: "cancelled" };
-      await this.fileManager.renameFile(file, plan.targetPath);
-      return { status: "moved", destination };
+      return await moveValidatedSource(this.vault, this.fileManager, source, destination, signal);
     } catch {
       // Obsidian例外には絶対path等が入り得るため、固定文言へ限定する。
       return { status: "failure", reason: "unexpected" };
