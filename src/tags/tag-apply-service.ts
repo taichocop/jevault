@@ -1,4 +1,6 @@
-import type { FileManager, TFile } from "obsidian";
+import type { FileManager } from "obsidian";
+
+import { acquireVaultMutationLease, type VaultMutationLease } from "../vault-mutation-coordinator";
 
 import { addSelectedFrontmatterTags } from "./additive-frontmatter-tags";
 
@@ -20,10 +22,6 @@ export type TagApplyResult =
   | { status: "cancelled" }
   | { status: "failure"; reason: TagApplyFailureReason };
 
-// 同じVaultの別service instanceからも同一sourceを並行mutationさせない。
-interface SourceLocks { paths: Set<string>; files: Set<TFile> }
-const locks = new WeakMap<TagApplyVault, SourceLocks>();
-
 /** UI未接続のmutation境界。active sessionで明示確認された一回限りのintentだけを受理する。 */
 export class TagApplyService {
   constructor(
@@ -33,9 +31,7 @@ export class TagApplyService {
 
   async apply(request: TagApplyRequest, signal: AbortSignal): Promise<TagApplyResult> {
     if (signal.aborted) return { status: "cancelled" };
-    let inFlight: SourceLocks | undefined;
-    let lockedPath: string | undefined;
-    let lockedFile: TFile | undefined;
+    let lease: VaultMutationLease | undefined;
     let callbackFailure: TagApplyFailureReason | undefined;
     try {
       const confirmation = request?.confirmation;
@@ -50,19 +46,13 @@ export class TagApplyService {
         if (!unique.some((earlier) => isSameTagIdentity(earlier, name))) unique.push(name);
       }
       if (signal.aborted) return { status: "cancelled" };
-      inFlight = locks.get(this.vault) ?? { paths: new Set<string>(), files: new Set<TFile>() };
-      locks.set(this.vault, inFlight);
-      const path = grant.source.path;
-      if (inFlight.paths.has(path)) return { status: "failure", reason: "busy" };
-      inFlight.paths.add(path);
-      lockedPath = path;
+      lease = acquireVaultMutationLease(this.vault, grant.source.path);
+      if (!lease) return { status: "failure", reason: "busy" };
 
       const file = resolveTagApplySource(this.vault, grant.source);
       if (signal.aborted) return { status: "cancelled" };
       if (file === null) return { status: "failure", reason: "source-changed" };
-      if (inFlight.files.has(file)) return { status: "failure", reason: "busy" };
-      inFlight.files.add(file);
-      lockedFile = file;
+      if (!lease.bindSourceFile(file)) return { status: "failure", reason: "busy" };
 
       // 最終検証とAPI開始の間にawaitを置かない。本文revisionやfreshnessはmutation条件にしない。
       if (resolveTagApplySource(this.vault, grant.source) !== file) {
@@ -87,8 +77,8 @@ export class TagApplyService {
       // raw例外には本文・絶対path等が入り得るため公開しない。開始後のrollback・自動retryはしない。
       return { status: "failure", reason: callbackFailure ?? "unexpected" };
     } finally {
-      if (lockedPath !== undefined) inFlight?.paths.delete(lockedPath);
-      if (lockedFile !== undefined) inFlight?.files.delete(lockedFile);
+      // Abortでは早期解放せず、開始済みObsidian APIの実際のsettlementまで保持する。
+      lease?.release();
     }
   }
 }

@@ -1,6 +1,7 @@
 import { normalizePath, TFile, TFolder, type FileManager, type Vault } from "obsidian";
 
 import type { NoteSource } from "./note-source";
+import { acquireVaultMutationLease } from "./vault-mutation-coordinator";
 
 export interface MovePlan {
   readonly sourcePath: string;
@@ -89,8 +90,6 @@ export async function moveValidatedSource(
 
 /** 確認後の検証と唯一のVault mutationを担当し、active noteやclassifierには依存しない。 */
 export class NoteMoveService {
-  private readonly inFlight = new Set<string>();
-
   constructor(
     private readonly vault: Pick<Vault, "getAbstractFileByPath">,
     private readonly fileManager: Pick<FileManager, "renameFile">,
@@ -107,18 +106,26 @@ export class NoteMoveService {
     if (plan === null || !displayedPaths.includes(destination)) {
       return { status: "failure", reason: "invalid-destination" };
     }
-    const keys = [pathKey(source.path), pathKey(plan.targetPath)];
-    if (keys.some((key) => this.inFlight.has(key))) {
-      return { status: "failure", reason: "busy" };
-    }
-    keys.forEach((key) => this.inFlight.add(key));
+    const lease = acquireVaultMutationLease(this.vault, source.path, plan.targetPath);
+    if (!lease) return { status: "failure", reason: "busy" };
     try {
-      return await moveValidatedSource(this.vault, this.fileManager, source, destination, signal);
+      const file = this.vault.getAbstractFileByPath(source.path);
+      if (file instanceof TFile && source.matches(file) && !lease.bindSourceFile(file)) {
+        return { status: "failure", reason: "busy" };
+      }
+      let identityBusy = false;
+      const result = await moveValidatedSource(this.vault, this.fileManager, source, destination, signal, validated => {
+        // lookupの再入でsourceが現れた場合も、最後に解決したidentityをAPI開始前に予約する。
+        identityBusy = !lease.bindSourceFile(validated);
+        return !identityBusy;
+      });
+      return identityBusy ? { status: "failure", reason: "busy" } : result;
     } catch {
       // Obsidian例外には絶対path等が入り得るため、固定文言へ限定する。
       return { status: "failure", reason: "unexpected" };
     } finally {
-      keys.forEach((key) => this.inFlight.delete(key));
+      // 開始後の取消でもrenameFileの実際のsettlementまで保持する。
+      lease.release();
     }
   }
 }
