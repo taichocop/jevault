@@ -1,4 +1,6 @@
-import { parseFrontMatterTags, type FileManager, type TFile } from "obsidian";
+import type { FileManager, TFile } from "obsidian";
+
+import { addSelectedFrontmatterTags } from "./additive-frontmatter-tags";
 
 import {
   resolveTagApplySource, type TagApplyFailureReason, type TagApplyVault,
@@ -74,32 +76,11 @@ export class TagApplyService {
         if (resolveTagApplySource(this.vault, grant.source) !== file) callbackFailure = "source-changed";
         else if (!isActiveConfirmedTagApplyIntent(confirmation, this.vault)) callbackFailure = "invalid-confirmation";
         if (callbackFailure) throw new Error("Tag apply validation failed");
-        const existing = frontmatter.tags;
-        let preserved: string[];
-        if (existing === undefined) preserved = [];
-        else if (Array.isArray(existing)) {
-          // 不明な要素をTag無しと扱わない。対応するlistは既存表記・重複・順序をそのまま保持する。
-          preserved = [...existing];
-          if (preserved.some((name) => typeof name !== "string" || !/^#?[^#\s]+$/u.test(name))) {
-            throw new Error("Unsupported tags property");
-          }
-        } else if (typeof existing === "string") {
-          // scalarの解釈は公式helperに委譲し、既存Tagを失う不明な値は書き換えない。
-          const parsed = parseFrontMatterTags(frontmatter);
-          if (!parsed?.length || parsed.some((name) => typeof name !== "string" || !/^#[^#\s]+$/u.test(name))) {
-            throw new Error("Unsupported tags property");
-          }
-          preserved = parsed.map((name) => name.slice(1));
-        } else throw new Error("Unsupported tags property");
-        const currentTags = preserved.map((name) => name.startsWith("#") ? name : `#${name}`);
-        // callbackのcurrent frontmatterだけがstrict duplicate authority。inline観測はadvisory。
-        additions = unique.filter((name) => !currentTags.some((current) => isSameTagIdentity(current, name)));
-        if (additions.length === 0) return;
-        if (resolveTagApplySource(this.vault, grant.source) !== file) callbackFailure = "source-changed";
-        else if (!isActiveConfirmedTagApplyIntent(confirmation, this.vault)) callbackFailure = "invalid-confirmation";
-        if (callbackFailure) throw new Error("Tag apply validation failed");
-        // 新規追加分だけ、公式YAML list表記へ変換する。case・階層・Unicodeは保持する。
-        frontmatter.tags = [...preserved, ...additions.map((name) => name.slice(1))];
+        additions = addSelectedFrontmatterTags(frontmatter, unique, () => {
+          if (resolveTagApplySource(this.vault, grant.source) !== file) callbackFailure = "source-changed";
+          else if (!isActiveConfirmedTagApplyIntent(confirmation, this.vault)) callbackFailure = "invalid-confirmation";
+          if (callbackFailure) throw new Error("Tag apply validation failed");
+        });
       });
       return additions.length === 0 ? { status: "no-change" } : { status: "applied", addedTags: additions };
     } catch {
