@@ -13,7 +13,7 @@ Synthetic Vault's SecretStorage, then raised the ceiling to 100 requests. Only f
 were needed and sent. No retry or additional provider request was performed.
 This authorization does not permit Release execution or risk acceptance.
 
-Only these disposable Vaults and separate profiles under `/private/tmp` were used:
+Only these disposable Vaults and separate profiles under isolated local temporary directories were used:
 
 - `Jevault-113-Synthetic-Stable-j5aj69fv` — actual 1.14.4 runtime.
 - `Jevault-113-Synthetic-Min-cf1yc3sg` — actual 1.11.4 runtime.
