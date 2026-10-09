@@ -1,48 +1,34 @@
 # AGENTS.md
 
-## Goal and priorities
+## Priorities and scope
 
-Jevault is an Obsidian plugin that suggests destination folders for Markdown notes. v0.1 supports suggestions and explicitly confirmed manual moves (Issue #33); no automatic moves.
+Jevault is an Obsidian plugin that suggests destination folders for Markdown notes.
 
-Prioritize: user data safety, privacy, correctness, simplicity, testability, then performance.
-
-## Source and workflow
-
-- Follow the approved GitHub Issue and relevant local `docs/` sections. Report material conflicts instead of guessing.
-- Work in this order: Issue → human approval → branch → implementation → tests → diff review → commit → PR.
-- Continue after PR through [current-HEAD review and bounded repair](agent/PR_REVIEW_LOOP.md) to HUMAN MERGE READY; merge remains a human gate.
-- Implement only the active Issue; do not add roadmap features.
-- Approved Issue execution follows [agent/LOOP.md](agent/LOOP.md), read-only review follows [agent/REVIEW.md](agent/REVIEW.md), and mandatory stops follow [agent/STOP_CONDITIONS.md](agent/STOP_CONDITIONS.md).
-
-## Issue-specific documentation
-
-- Ordinary feature Issues use the GitHub Issue and PR as the authoritative record; do not create root-level `ISSUE_*.md` by default.
-- Put long-lived architecture decisions in `docs/architecture/` and historical research, safety spikes, or durable verification evidence in `docs/history/`.
-- Keep transient implementation and verification notes in the GitHub Issue or PR body by default. When a dedicated Markdown record is needed, choose its location explicitly rather than adding it to the repository root.
+- Prioritize user data safety > privacy > correctness > simplicity > testability > performance.
+- Follow only the approved active GitHub Issue and relevant specs; do not implicitly add roadmap features.
+- Stop and report material Issue/spec/safety conflicts rather than guess.
 
 ## Safety and architecture
 
-- Unless explicitly required by the Issue, never move, rename, modify, or delete notes; create folders; edit frontmatter; add tags/links; run background work; or add telemetry.
-- Never hard-code, commit, persist, or log API keys, SecretStorage values, note bodies, or environment collections. Do not put real Secrets in fixtures or `.env`.
-- Use Obsidian APIs for Vault operations. Tests must use fixtures, never a real Vault.
-- Keep TypeSafe SDK usage inside `TypeSafeAdapter` and replaceable through an interface.
-- Keep `main.ts` limited to lifecycle, dependency wiring, commands, and settings.
+- No note move/rename/modification/deletion, folder creation, frontmatter/tag/link mutation, or background work unless explicitly authorized by the active Issue.
+- Mutations require exact original `NoteSource`, the approved target, user selection and explicit confirmation; never overwrite, silently retarget, or fall back to the active note. AI suggestion is not mutation authority.
+- Use only public Obsidian APIs for Vault operations.
+- Never hard-code, commit, persist, or log API keys, SecretStorage values, note bodies, or environment collections; no real Secrets in fixtures or `.env`.
+- No telemetry or new external destinations/data flow without explicit active-Issue scope.
+- Keep TypeSafe SDK usage only inside `TypeSafeAdapter`, replaceable through an interface.
+- Keep `main.ts` limited to lifecycle, dependency wiring/composition, commands and settings; business rules belong elsewhere.
 
-## Readability and verification
+## Verification
 
-- Add concise Japanese rationale comments only for non-obvious safety, privacy, Obsidian, adapter, validation, or error-handling decisions.
-- Unit tests must use fakes and require no real API key or network call.
-- Before completion, run test, typecheck, lint, and build scripts; then inspect status, diff, staged diff, Secrets, scope, Vault mutations, and dependencies.
-- Never report an unchecked item as passing.
+- Normal tests use fakes/synthetic fixtures: no real user Vault, API key, TypeSafe request or network call.
+- Run `npm run verify` before PR-ready work; inspect status, full/staged diff, Secrets, scope, Vault mutations and dependencies.
+- Never claim unchecked validation passed or skip safety checks/tests to save tokens.
 
-## Token efficiency
+## Documentation and rationale
 
-- Start with the active Issue and search only relevant headings/files; avoid rereading or pasting large unchanged content.
-- Prefer focused commands and concise summaries. Reuse existing decisions and stop when approval is required.
-- Never skip safety checks or tests to save tokens.
+- Use the GitHub Issue/PR for transient notes; avoid root-level `ISSUE_*.md`. Put durable architecture in `docs/architecture/` and historical research/safety/verification evidence in `docs/history/`.
+- Add concise Japanese rationale comments only for non-obvious safety, privacy, Obsidian, adapter, validation or error-handling decisions.
 
-## Code Review Rules
+## Human authorization
 
-- Flag any unapproved Vault mutation or background behavior; manual moves must follow selection plus explicit confirmation and must never overwrite or fall back to the active note.
-- Flag Secret exposure, persistence, logging, or unapproved external data flow.
-- Flag Issue-scope violations, TypeSafe SDK use outside `TypeSafeAdapter`, or business logic in `main.ts`.
+- Merge, auto-merge, version changes, tags, releases and deployment require explicit human authorization.
