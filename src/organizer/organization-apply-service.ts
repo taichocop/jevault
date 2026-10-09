@@ -167,7 +167,7 @@ export class OrganizationApplyService {
           if (callbackFailure) throw callbackFailure;
           if (error instanceof GuardFailure) throw error;
           tag = "failed";
-          move = "not-started-prior-failure";
+          if (move !== "keep-current" && move !== "unchanged") move = "not-started-prior-failure";
           return done("tag-failed");
         }
         // unchangedでもAPIはstatを変更し得る。settlement後のexact sourceだけをbaselineにする。
@@ -229,15 +229,15 @@ export class OrganizationApplyService {
       }
       if (reason === "cancelled") {
         if (tag === "not-started-prior-failure") tag = "not-started-cancelled";
-        if (move !== "applied") move = "not-started-cancelled";
+        if (move !== "applied" && move !== "keep-current" && move !== "unchanged") move = "not-started-cancelled";
         return done();
       }
       if (reason === "stale") {
         if (tag === "not-started-prior-failure") tag = "not-started-stale";
-        if (move !== "applied") move = "not-started-stale";
+        if (move !== "applied" && move !== "keep-current" && move !== "unchanged") move = "not-started-stale";
         return done("stale");
       }
-      if (move !== "applied") move = "not-started-prior-failure";
+      if (move !== "applied" && move !== "keep-current" && move !== "unchanged") move = "not-started-prior-failure";
       return done(reason, reason);
     } finally {
       // 開始済みObsidian mutationをraceで打切らず、実settlementまで同一leaseを保持する。

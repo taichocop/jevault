@@ -458,3 +458,41 @@ it("final lower-level destination lookup exception stops globally instead of con
   expect(h.manager.processFrontMatter).toHaveBeenCalledOnce(); expect(h.manager.renameFile).not.toHaveBeenCalled();
   const lease = acquireVaultMutationLease(h.vault, h.file.path, "Dest/0.md"); expect(lease).toBeDefined(); lease?.release();
 });
+
+it.each([null, "Inbox"])("cancellation after Tag settlement retains no-op Move %s", async destination => {
+  const h = harness(["#reviewed"], destination, 2), gate = deferred();
+  h.manager.processFrontMatter.mockImplementationOnce(async (f, cb) => { cb(h.frontmatter); f.stat.mtime++; await gate.promise; });
+  const pending = h.run(); await flush(); h.controller.abort(); gate.resolve();
+  const result = await pending;
+  expect(result.status).toBe("cancelled"); expect(result.results).toHaveLength(1);
+  expect(result.results[0]).toMatchObject({ tag: "applied", move: destination === null ? "keep-current" : "unchanged", outcome: "updated-tags" });
+  expect(result.progress.failed).toBe(0); expect(h.manager.renameFile).not.toHaveBeenCalled();
+});
+it("Tag callback interrupted by cancellation retains keep-current intent", async () => {
+  const h = harness(["#reviewed"], null), gate = deferred();
+  h.manager.processFrontMatter.mockImplementationOnce(async (_f, cb) => { await gate.promise; cb(h.frontmatter); });
+  const pending = h.run(); await flush(); h.controller.abort(); gate.resolve();
+  expect(await pending).toMatchObject({ status: "cancelled", results: [
+    { tag: "interrupted-cancelled", move: "keep-current", outcome: "cancelled" },
+  ] });
+  expect(h.frontmatter.tags).toEqual(["KEEP", "KEEP"]); expect(h.manager.renameFile).not.toHaveBeenCalled();
+});
+
+it.each([null, "Inbox"])("lifetime/stale/failure retains no-op Move %s", async destination => {
+  for (const reason of ["revoked", "stale", "tag-failed"] as const) {
+    const h = harness(["#reviewed"], destination, 2), gate = deferred();
+    h.manager.processFrontMatter.mockImplementationOnce(async (f, cb) => {
+      if (reason === "tag-failed") throw new Error("private");
+      cb(h.frontmatter); f.stat.mtime++; await gate.promise;
+    });
+    const pending = h.run(); await flush();
+    if (reason === "revoked") h.confirmation.dispose();
+    if (reason === "stale") h.entries.delete(h.file.path);
+    gate.resolve(); const result = await pending;
+    expect(result.results[0].move).toBe(destination === null ? "keep-current" : "unchanged");
+    expect(result.results[0].reason).toBe(reason === "revoked" ? "invalid-confirmation" : reason);
+    expect(result.status).toBe(reason === "revoked" ? "stopped" : "completed");
+    expect(h.manager.renameFile).not.toHaveBeenCalled();
+    if (reason === "revoked") expect(result.results).toHaveLength(1);
+  }
+});

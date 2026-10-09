@@ -226,17 +226,20 @@
   "rollback": 0,
   "verification": {
     "date": "2026-10-09 JST",
-    "baseline": "56deac3",
+    "baseline": "56deac3ff5b13b001bbe38094be2a4516ad4cc10",
     "invocation": "Explicit isolated verification command through native Obsidian UI",
     "syntheticOnly": true,
+    "existingTagCatalogSeeded": true,
     "casesAtoJ": "PASS",
+    "reproduce": "node scripts/prepare-organization-apply-runtime.mjs; open the printed fresh Vault in Obsidian and explicitly run its isolated verification command",
     "limits": "Obsidian 1.14.4 on macOS; other runtimes/versions, external editor/OS/sync transaction isolation not verified",
     "sourceSha256": {
       "src/note-move-service.ts": "83aa8f6fdc4b753e72bea1aab9e335b6e6f9f0227e98986b0802ceedf0a5350d",
       "src/organizer/organization-apply-confirmation.ts": "6f24d659642ce1074e38b697360a0d257d958435186184d684c7da2a866520a1",
       "src/organizer/organization-apply-result.ts": "656bb7d13a4acbc22bf9c8d59e0e61d248d5fbe4b14d65c040c7f90e74427022",
-      "src/organizer/organization-apply-service.ts": "6776a04f83209043c85b2042d99b59a209edd7abd2ffc8d8f4e81ac5c78d15b1",
-      "tests/helpers/organization-apply-runtime-plugin.ts": "4e7830f47ebeac7e39ac878581c4157b511ae319b60d4a90dacfc1a02f75eade"
+      "src/organizer/organization-apply-service.ts": "203c055fdf97979f15bb5fdf440e9eb314827bf31141e57b9c4595dd66555233",
+      "tests/helpers/organization-apply-runtime-plugin.ts": "4e7830f47ebeac7e39ac878581c4157b511ae319b60d4a90dacfc1a02f75eade",
+      "scripts/prepare-organization-apply-runtime.mjs": "db4cfe08e8b14815e6aa65db46f91f4f95cac1b1c2ade5e13e296277ea3d19f3"
     }
   }
 }
