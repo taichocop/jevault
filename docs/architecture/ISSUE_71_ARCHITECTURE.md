@@ -104,8 +104,8 @@ Authoritative inputs checked on 2026-10-02 JST:
   [PR #67](https://github.com/taichocop/jevault/pull/67): Issues closed/completed,
   PRs merged. #67's final approved selected-vs-selected duplicate prevention is
   retained, including its human-approved disposition of the contrary review.
-- [AGENTS](../../AGENTS.md), [LOOP](../../agent/LOOP.md), [REVIEW](../../agent/REVIEW.md),
-  [STOP](../../agent/STOP_CONDITIONS.md), [PR review loop](../../agent/PR_REVIEW_LOOP.md),
+- [AGENTS](../../AGENTS.md), the then-current execution, review,
+  stop, and PR review-loop contracts,
   [Issue #64 report](../history/ISSUE_64_SPIKE.md), relevant
   [README](../../README.md#tag-suggest-and-manual-tag-apply) / [PRIVACY](../../PRIVACY.md), and current
   production boundaries below. There is no `docs/` tree. The root-level

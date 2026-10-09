@@ -50,8 +50,7 @@ Read [Issue #64](https://github.com/taichocop/jevault/issues/64),
 [Issue #62](https://github.com/taichocop/jevault/issues/62),
 [PR #61](https://github.com/taichocop/jevault/pull/61), and
 [PR #63](https://github.com/taichocop/jevault/pull/63), plus [AGENTS.md](../../AGENTS.md),
-[LOOP](../../agent/LOOP.md), [STOP](../../agent/STOP_CONDITIONS.md),
-[REVIEW](../../agent/REVIEW.md), and [PR review loop](../../agent/PR_REVIEW_LOOP.md).
+the then-current execution, stop, review, and PR review-loop contracts.
 There is no local `docs/` tree at this baseline. Requirements used here are the
 active Issue, relevant predecessor Issues, README's read-only Tag Suggest
 section, PRIVACY's operation-scoped fingerprints, and current code/tests.
@@ -429,7 +428,7 @@ Native UI initially showed the correct Synthetic Vault. Settings refresh and
 the separate plugin's enable toggle succeeded. Native input then returned
 `timeoutReached` three times: settings close, app rebind, and command-palette
 key input after the human returned to A. Automatic UI operations stopped at
-the same-failure limit in [STOP_CONDITIONS](../../agent/STOP_CONDITIONS.md). An earlier
+the same-failure limit in the then-current stop contract. An earlier
 `noWindowsAvailable` and an invalid-element error are also preserved as
 infrastructure observations. No alternate OS automation, private Obsidian API,
 product repair or counter reset was used to bypass this STOP.

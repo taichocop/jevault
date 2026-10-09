@@ -40,8 +40,8 @@ closed/completed with #72/#74/#76/#65/#67 merged. #69 is closed/not_planned;
 HTTP 401; public REST provided the authoritative Issue and related state, and
 the connected GitHub plugin returned repository access successfully.
 
-Read [AGENTS](../../AGENTS.md), [LOOP](../../agent/LOOP.md), [REVIEW](../../agent/REVIEW.md),
-[STOP](../../agent/STOP_CONDITIONS.md), [PR loop](../../agent/PR_REVIEW_LOOP.md),
+Read [AGENTS](../../AGENTS.md), the then-current execution, review,
+stop, and PR review-loop contracts,
 [the #71 architecture](../architecture/ISSUE_71_ARCHITECTURE.md), [the #64 spike](ISSUE_64_SPIKE.md),
 the requested metadata/grant/freshness/preparation/authorization/Apply/identity,
 NoteSource/main boundaries, and their requested tests/helpers. There is no

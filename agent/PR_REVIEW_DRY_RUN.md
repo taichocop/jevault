@@ -1,7 +1,7 @@
 # Issue #52 review-loop dry run
 
 Read-only historical inspection on 2026-09-30 against
-[PR_REVIEW_LOOP.md](PR_REVIEW_LOOP.md). These are contract walkthroughs, not
+the then-current PR review-loop contract. These are contract walkthroughs, not
 live trigger experiments or certification of historical PRs. No historical PR
 was modified. Public REST comments/reviews/commits were read; authenticated
 GraphQL thread resolution and live settings were unavailable (local `gh`
