@@ -67,7 +67,7 @@ Freshness warnings explain when suggestions may be based on changed or unknown n
 
 Manual Tag Apply is local and makes no provider request or Secret lookup. It adds only selected suggested tags through Obsidian's frontmatter API, preserving existing supported tags and unrelated fields. Once that API starts, closing or unloading the modal cannot undo the operation; it completes without automatic retry or rollback, and closed UI receives no late notification. There is no automatic Tag mutation, free-form/new Tag generation, or **Analyze again** action. Opening, selecting, and reviewing confirmation alone change no note.
 
-### Folder Organizer Preview, Analyze, and Review
+### Folder Organizer Preview, Analyze, Review, and Apply
 
 Right-click a folder in Explorer and select **Jevault: Organize notes in this folder**. Choose **This folder only** or **Include subfolders**, then select **Preview notes** to see the Markdown target count. Each preview is read-only and runs once; **Cancel**, **Esc**, or closing before Preview starts no collection. Ignored folders and the current Obsidian configuration directory are excluded; Inbox remains eligible as a source.
 
@@ -89,7 +89,13 @@ Use **Previous**/**Next** to review each note. Folder choices start unreviewed: 
 
 **Finish review** requires an explicit Folder intent for every reviewable note. Failed notes do not block completion; zero reviewable notes cannot finish. Finish preserves selected tags and explicitly confirms zero tags for untouched Tag controls. It creates an immutable result in operation memory, retaining the original note source, snapshot, and separate analysis. The terminal message is **Review complete. No changes were made to your Vault.** Close/Esc/X before Finish discards the draft; closing or plugin unload clears operation memory and invalidates old handlers.
 
-**Apply remains unavailable.** Review selection and completion grant no mutation authority. This flow does not complete all v0.5 requirements.
+After Finish, **Apply selected changes** opens a separate read-only final confirmation. Review selection and completion grant no mutation authority. Check the exact original Vault-relative Note paths, Folder intents, selected Tags, reviewed/unavailable counts, planned moves and Tag selections. Unavailable Notes are informational and excluded from Apply. Source freshness, folder eligibility and collisions are checked again at Apply time; these reviewed intentions are not guarantees. **Cancel**, **Esc**, or X before final confirmation changes nothing.
+
+Only **Confirm Apply** starts one local attempt through the existing Organizer Apply service. Use **Tab** to focus that button and **Enter** to confirm; repeated confirmation cannot start another attempt. The original Review session and immutable result survive navigation and remain valid until in-flight APIs settle. No TypeSafe request, Secret lookup, note body read, hash, re-analysis or target recollection occurs from Review to Apply.
+
+Apply progress shows reviewed total, processed terminal results, failed/stale counts and the current original path. **Stop** requests cancellation once and keeps the UI open until already-started Obsidian APIs settle. **Close**, **Esc**, X or plugin unload aborts and detaches UI immediately, suppressing late feedback; ownership is cleaned up after settlement. No next mutation starts after cancellation is observed, but an already-started Tag or Move can finish.
+
+**Tag + Move is not atomic, and partial success cannot be rolled back automatically.** The summary distinguishes completed, cancelled and stopped; completed can include failures or stale/skipped Notes. Per-Note Tag/Move phases and outcomes retain the original reviewed order and paths, including Tag success followed by Move failure or cancellation. Unavailable Notes and Notes with no terminal result receive no fabricated mutation outcome. Keep current/same-folder make no rename call, and zero selected Tags make no frontmatter call. There is no automatic Apply, retry, rollback, overwrite, auto-suffix, folder creation or Tag removal/rename.
 
 ## Privacy and external services
 
@@ -108,7 +114,7 @@ See [PRIVACY.md](PRIVACY.md) for details and the [TypeSafe privacy policy](https
 ## Limitations
 
 - Desktop only
-- Manual moves require selection and explicit confirmation; no automatic or bulk moves
+- Manual moves and Folder Organizer Apply require selection and explicit final confirmation; no automatic moves
 - No filename changes, folder creation, deletion, tag removal/rename, or custom whole-note/link rewriting
 - Obsidian manages standard link updates according to your preferences
 - Can only suggest existing, non-excluded Vault folders

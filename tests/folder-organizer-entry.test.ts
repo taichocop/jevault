@@ -515,7 +515,7 @@ describe("Folder Organizer production service composition", () => {
       expect(docs[name]).toContain("operation memory");
     }
     expect(docs["README.md"]).toContain("both enabled by default");
-    expect(docs["README.md"]).toContain("Apply remains unavailable");
+    expect(docs["README.md"]).toContain("Confirm Apply");
     expect(docs["PRIVACY.md"]).toContain("does not persist results or bodies");
   });
 });

@@ -393,9 +393,9 @@ describe("#107 sequential results/progress 78–103", () => {
     expect(JSON.stringify(result)).not.toMatch(/absolute|private|Secret|provider|aliases|tags":\[/);
     expect(result.results[0].reason).toBe("move-failed");
   });
-  it("110 Apply core stays outside UI/main bundle; no test-spike import in production", () => {
+  it("110 production composition uses Apply service; no test-spike import in production", () => {
     const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
-    expect(main).not.toMatch(/OrganizationApply|organization-apply/);
+    expect(main).toContain("new OrganizationApplyService(this.app.vault, this.app.fileManager, () => this.settings)");
     for (const name of ["confirmation", "service", "result"]) {
       expect(readFileSync(new URL(`../src/organizer/organization-apply-${name}.ts`, import.meta.url), "utf8")).not.toMatch(/tests\/|safety-spike|TargetFileCollector|cachedRead|\.read\(|SecretStorage|typesafe/i);
     }

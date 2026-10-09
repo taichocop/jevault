@@ -7,6 +7,9 @@ import type { TargetFileCollector } from "./target-file-collector";
 import type { FolderOrganizerService } from "./folder-organizer-service";
 import type { OrganizationReviewService } from "./organization-review-service";
 import { OrganizationReviewModal } from "./organization-review-modal";
+import type { OrganizationApplyService } from "./organization-apply-service";
+import { OrganizationApplyFlow } from "./organization-apply-flow";
+import { OrganizationApplyModal } from "./organization-apply-modal";
 
 export class FolderOrganizerEntryController {
   private readonly lifetime = new AbortController();
@@ -17,6 +20,7 @@ export class FolderOrganizerEntryController {
     private readonly getSettings: () => Pick<JevaultSettings, "ignoredFolders">,
     private readonly analysis: Pick<FolderOrganizerService, "analyze">,
     private readonly review: Pick<OrganizationReviewService, "prepare">,
+    private readonly apply: Pick<OrganizationApplyService, "apply">,
   ) {}
 
   addToMenu(menu: Menu, file: TAbstractFile): void {
@@ -34,7 +38,11 @@ export class FolderOrganizerEntryController {
             const session = this.review.prepare(result, this.lifetime.signal);
             if (!session) return false;
             if (this.lifetime.signal.aborted) { session.dispose(); return false; }
-            new OrganizationReviewModal(this.app, session, this.lifetime.signal).open();
+            new OrganizationReviewModal(this.app, session, this.lifetime.signal, owner => {
+              const flow = new OrganizationApplyFlow(this.app.vault, owner, this.apply, this.lifetime.signal);
+              try { new OrganizationApplyModal(this.app, flow).open(); }
+              catch { flow.detach(); }
+            }).open();
             return true;
           },
         ).open();
