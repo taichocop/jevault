@@ -2,15 +2,19 @@
 
 This checklist applies to future releases. The existing 0.1.0 release was published before this workflow and has no retroactive attestation. Use only a dedicated, isolated test Vault for manual verification.
 
+Readiness and release execution are separate gates. Issue #113 audits the v0.5.0 candidate without changing versions, tags, Releases, repository settings, or deploying. Issue #114 requires readiness GO on the exact candidate and fresh explicit human authorization. Never mark an unexecuted host/provider check as passed because unit tests pass; record NOT VERIFIED and its effect on GO / NO-GO.
+
 ## Automated verification
 
 - [ ] Decide the release version and obtain human approval before creating or pushing its exact version tag. Never rerun the release path for 0.1.0.
 - [ ] Run `npm ci` from the committed lockfile.
+- [ ] Run `npm run verify` on the exact candidate and record its SHA, supported Node/npm versions, test totals, and results. It covers tests, lint, production build (including typecheck and licenses), and working/staged `git diff --check`; equivalent checks need not be repeated without a reason.
 - [ ] `npm test`
 - [ ] `npm run typecheck`
 - [ ] `npm run lint`
 - [ ] `npm run build`
 - [ ] Confirm the production `main.js` passes the full third-party license notice verification (`npm run verify:licenses`); repeat the bundled-dependency license audit after dependency updates.
+- [ ] Classify dependency advisories as shipped/runtime or development-only using the actual bundle boundary; record impact and unresolved risks without unrelated dependency updates.
 
 ## Metadata and documentation
 
@@ -30,9 +34,11 @@ This checklist applies to future releases. The existing 0.1.0 release was publis
 
 - [ ] The plugin implements no telemetry, analytics, tracking, or crash reporting.
 - [ ] No secret values, tracked plaintext `.env` files, SecretStorage dumps, note-body logs, or full environment dumps are present.
-- [ ] Intentional Vault mutations are limited to explicitly confirmed manual moves and Manual Tag Apply through Obsidian APIs. Tag Apply requires selection of exact suggested existing Tags, explicit confirmation, the original `NoteSource`, and a single-use `ConfirmedTagApplyIntent`; only missing selected frontmatter Tags are added, preserving existing supported Tags and unrelated fields.
+- [ ] Intentional Vault mutations are limited to explicitly confirmed Manual Move, Manual Tag Apply, and Folder Organizer Apply through public Obsidian APIs. Manual Tag Apply requires exact suggested existing Tags, explicit confirmation, original `NoteSource`, and a single-use `ConfirmedTagApplyIntent`; only missing selected frontmatter Tags are added, preserving existing supported Tags and unrelated fields.
+- [ ] Organizer Review/Finish review grants no mutation authority. Only the separate final **Confirm Apply** issues one single-use capability bound to the actual Vault, exact original Review session/result, selected intent, `NoteSource`, and `NoteSnapshot`; copies, stale handlers and replay fail closed.
+- [ ] Manual Move, Manual Tag Apply and Organizer Apply share the Jevault-local mutation coordinator. Source/target paths and exact TFile remain leased through actual API settlement, including cancellation. Editor/other-plugin/filesystem/sync writes are not locked; no transaction isolation is promised.
 - [ ] Current frontmatter semantic duplicates are strictly prevented; inline duplicates and **Already on note** are best effort/advisory. No automatic move, automatic Tag Apply, free-form/new Tag generation, or custom whole-note/body/link rewrite exists.
-- [ ] Manual Tag Apply makes no additional TypeSafe request or Secret lookup.
+- [ ] Manual Tag Apply and Organizer Apply make no additional TypeSafe request or Secret lookup. Organizer Review-to-Apply performs no body read/hash, target recollection, or re-analysis.
 - [ ] Command IDs do not repeat the plugin ID; they are `classify-current-note` and `suggest-tags-for-current-note`.
 - [ ] The repository contains no sample code, ads, self-update behavior, dynamic remote code, or dependency auto-install behavior.
 - [ ] Desktop-only metadata remains correct.
@@ -46,7 +52,35 @@ This checklist applies to future releases. The existing 0.1.0 release was publis
 - [ ] Confirm the Command Palette contains **Jevault: Suggest tags for current note**.
 - [ ] Confirm a missing API key produces safe error UI without a network request.
 - [ ] Disable and re-enable the plugin without a runtime error.
-- [ ] Compare the fixture Vault before and after testing: only explicitly confirmed manual moves, Manual Tag Apply frontmatter additions, and Obsidian-managed link updates are expected mutations.
+- [ ] Right-click a folder in Explorer and open Organizer; check This folder only / Include subfolders, exact Preview count and local-only Preview.
+- [ ] Complete the Organizer checks below, including explicit final confirmation and truthful partial results.
+- [ ] Compare the fixture Vault before and after testing: only explicitly confirmed Manual Move, Manual Tag Apply and Organizer Apply additions/moves, plus Obsidian-managed link updates, are expected note mutations.
+
+## Desktop compatibility, upgrade, and provider gates
+
+- [ ] Record exact Obsidian versions and test the production plugin on the claimed minimum (currently 1.11.4) and the current available stable Desktop. On minimum: enable, Settings/secret selector, both commands, Explorer entry, Preview, no startup/runtime API error. If incompatible, stop and propose later minAppVersion/versions mapping changes; do not silently change metadata during readiness.
+- [ ] On current stable, complete a clean install and the Manual Move, Tag Apply and Organizer regressions in fresh synthetic fixtures. Classify untested Windows/Linux and external plugin/editor/sync races explicitly.
+- [ ] In a dedicated synthetic Vault, enable published 0.1.0-compatible settings, replace its assets with the exact candidate, then verify settings and the selected Secret reference persist, existing commands and new Explorer entry remain available, and load/upgrade causes no automatic note mutation. Use no real credential. Record that candidate metadata is still 0.1.0 and this is not an actual 0.5.0 package upgrade.
+- [ ] Obtain explicit human authorization for a bounded real TypeSafe smoke and the selected SecretStorage credential before any chargeable request. Use only synthetic notes: Classify, Tag Suggest, and Organizer Analyze with both phases (one note means up to four requests total across these actions). Do not save key values, response bodies, or note bodies in evidence. Without authorization/credential, record NOT VERIFIED and block full GO pending completion or explicit owner disposition.
+- [ ] Verify actual host Plugin Disable while idle, during analysis, during Review/final confirmation before mutation, and during in-flight Tag and Move APIs. Confirm abort/disposal prevents new work, started APIs settle truthfully, leases release only after settlement, and late UI/notices remain suppressed. Calling only entry.dispose in a harness is not actual Plugin Disable evidence.
+
+## Folder Organizer verification (isolated synthetic Vault only)
+
+Required user flow: **Preview → Analyze → Review → Finish review → Apply selected changes → Confirm Apply → Progress / Stop → Result**.
+
+- [ ] Explorer scope/Preview captures exact original ordered targets; no body read, Secret lookup, network or mutation occurs. Later-added targets are not included and there is no active-note fallback.
+- [ ] Folder/Tag Analysis Options toggle independently, both enabled by default, and both disabled prevents work. Explicit Analyze alone reads exact target bodies and invokes only enabled provider phases with accurate data/credit disclosure.
+- [ ] Analysis progress/Stop, failure and cancellation are truthful. Review is entered explicitly only from completed analysis; opening/navigating/selecting/Finish review is local and changes no notes.
+- [ ] Review distinguishes current Tags, AI suggestions, and user choices. Require an explicit Folder intent per reviewable Note; 0..N existing Tags and untouched zero-Tag selections are confirmed only by Finish. Unavailable Notes are excluded.
+- [ ] Apply selected changes opens a separate final confirmation with exact original paths, Folder intent, Tags/counts, unavailable count and non-atomic/partial-success warning. Cancel/Esc/X or unload before Confirm Apply causes mutation 0.
+- [ ] Only final Confirm Apply starts one attempt. Repeated click/Enter and detached handlers cannot reuse confirmation; source identity/path/Markdown/mtime/size, eligible existing destination and collisions are revalidated under the shared lease.
+- [ ] Exercise Tag-only, Move-only and Tag+Move; preserve supported current frontmatter and unrelated fields, add only missing selected Tags, and never overwrite, auto-suffix, create folders, remove/rename Tags or retarget notes.
+- [ ] Keep-current/same-folder causes no rename; zero Tags causes no frontmatter call. A semantic duplicate is unchanged, with a post-Tag baseline still validated before Move.
+- [ ] Stale/deleted/renamed/replaced sources, missing/ineligible destinations and collisions fail safely. Tag failure prevents Move. Tag success followed by Move failure/cancellation is explicit partial success, with no rollback, retry or automatic Apply.
+- [ ] Stop during Tag/Move prevents subsequent mutations after cancellation is observed, while already-started APIs settle honestly under the same lease. Stop retains UI through settlement; Close/Esc/X/unload detaches immediately and suppresses late feedback without abandoning the owner early.
+- [ ] Result distinguishes completed/cancelled/stopped and per-Note Tag/Move outcomes in original Review order. Completed may contain failures. Unavailable/unattempted Notes receive no fabricated mutation results.
+- [ ] Apply has zero external requests, Secret lookups, body reads/hashes, re-analysis and recollection. Compare fixture changes with only final-confirmed intent and host-managed links; capture evidence without note bodies, credentials or raw provider errors.
+- [ ] Record remaining VERIFIED / KNOWN LIMITATION (owner acceptance separately documented) / BLOCKER / NOT VERIFIED risks and explicit **V0.5.0 RELEASE READINESS: GO** or **NO-GO**, plus a release-notes draft. Do not label unapproved risk ACCEPTED.
 
 ## Manual move verification (isolated synthetic Vault only)
 
