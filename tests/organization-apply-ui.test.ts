@@ -58,8 +58,9 @@ function harness(count = 1, unavailable = false) {
   const apply = vi.spyOn(service, "apply"), confirm = vi.spyOn(OrganizationApplyConfirmationSession.prototype, "confirm");
   const dispose = vi.spyOn(review, "dispose");
   let modal!: OrganizationApplyModal;
+  let flow!: OrganizationApplyFlow;
   const reviewModal = new OrganizationReviewModal({} as App, review, lifetime.signal, session => {
-    const flow = new OrganizationApplyFlow(vault, session, service, lifetime.signal);
+    flow = new OrganizationApplyFlow(vault, session, service, lifetime.signal);
     modal = new OrganizationApplyModal({} as App, flow); modal.open();
   });
   reviewModal.open();
@@ -73,7 +74,16 @@ function harness(count = 1, unavailable = false) {
   };
   const navigate = () => { button(reviewModal, "Apply selected changes").click(); return modal; };
   return { files, entries, vault, manager, fm, forbidden, review, lifetime, service, apply, confirm, dispose, settings,
-    reviewModal, finish, navigate, modal: () => modal };
+    reviewModal, finish, navigate, modal: () => modal, flow: () => flow };
+}
+function expectReleased(flow: OrganizationApplyFlow): void {
+  // GC timingではなく、stale Modalから到達する保持fieldを直接検証する。
+  for (const field of ["review", "result", "confirmation", "owner", "view"]) expect(Reflect.get(flow, field), field).toBeUndefined();
+  expect(Reflect.get(flow, "progress")).toEqual({ total: 0, processed: 0, failed: 0, stale: 0 });
+}
+function expectReviewReleased(modal: OrganizationReviewModal): void {
+  expect(Reflect.get(modal, "session")).toBeUndefined();
+  expect(Reflect.get(modal, "completedResult")).toBeUndefined();
 }
 afterEach(() => vi.restoreAllMocks());
 
@@ -85,6 +95,7 @@ describe("#111 real UI -> original confirmation -> production service", () => {
     const exact = h.review.getResult()!, staleApply = button(h.reviewModal, "Apply selected changes");
     const modal = h.navigate(); staleApply.click(); h.reviewModal.close(); h.reviewModal.onOpen();
     expect(h.review.getResult()).toBe(exact); expect(h.dispose).not.toHaveBeenCalled();
+    expectReviewReleased(h.reviewModal);
     expect(h.confirm).not.toHaveBeenCalled(); expect(h.apply).not.toHaveBeenCalled();
     expect(h.manager.processFrontMatter).not.toHaveBeenCalled(); expect(h.manager.renameFile).not.toHaveBeenCalled();
     expect(h.vault.getAllFolders).not.toHaveBeenCalled(); expect(h.vault.getAbstractFileByPath).not.toHaveBeenCalled();
@@ -104,6 +115,7 @@ describe("#111 real UI -> original confirmation -> production service", () => {
     stale.click(); stale.focus(); (modal as unknown as Modal).scope.press("Enter"); modal.onOpen();
     expect(h.confirm).not.toHaveBeenCalled(); expect(h.apply).not.toHaveBeenCalled();
     expect(h.dispose).toHaveBeenCalledOnce(); expect(text(modal)).toBe("");
+    expectReleased(h.flow()); expectReviewReleased(h.reviewModal);
     expect(h.manager.processFrontMatter).not.toHaveBeenCalled(); expect(h.manager.renameFile).not.toHaveBeenCalled();
   });
   it("single final keyboard Confirm disables synchronously; repetition/click/stale Close cannot replay", async () => {
@@ -229,6 +241,66 @@ describe("#111 real UI -> original confirmation -> production service", () => {
     expect(h.review.getResult()).toBe(exact); expect(h.dispose).not.toHaveBeenCalled();
     gate.resolve(); await flush(); expect(h.dispose).toHaveBeenCalledOnce(); expect(text(modal)).toBe("");
     expect(h.manager.renameFile).not.toHaveBeenCalled();
+  });
+  it("visible terminal summary retains only its exact review/result, then Close clears even previously-disposed ownership", async () => {
+    const h = harness(); h.finish(); const exact = h.review.getResult(), staleApply = button(h.reviewModal, "Apply selected changes");
+    const modal = h.navigate(), flow = h.flow();
+    expect(Reflect.get(modal, "flow")).toBe(flow); expectReviewReleased(h.reviewModal);
+    button(modal, "Confirm Apply").click(); await flush();
+    const result = await h.apply.mock.results[0].value, observer = h.apply.mock.calls[0][2]!;
+    expect(Reflect.get(flow, "review")).toBe(exact); expect(Reflect.get(flow, "result")).toBe(result);
+    expect(Reflect.get(flow, "confirmation")).toBeUndefined(); expect(Reflect.get(flow, "owner")).toBeUndefined();
+    expect(text(modal)).toContain("Moved and tags updated"); expect(h.dispose).toHaveBeenCalledOnce();
+    observer({ total: 99, processed: 99, failed: 99, stale: 99, currentPath: "Synthetic-late.md" });
+    expect(Reflect.get(flow, "progress")).toBe(result.progress);
+    const staleClose = button(modal, "Close"); staleClose.click();
+    observer({ total: 99, processed: 99, failed: 99, stale: 99, currentPath: "Synthetic-late.md" });
+    staleApply.click(); staleClose.click(); modal.onOpen(); flow.detach();
+    expectReleased(flow); expectReviewReleased(h.reviewModal); expect(text(modal)).toBe("");
+    expect(h.dispose).toHaveBeenCalledOnce(); expect(h.apply).toHaveBeenCalledOnce();
+  });
+  it.each(["tag", "move"])("unload during held %s preserves exact authority until settle, then stale flow/progress holds no Note data", async phase => {
+    const h = harness(2); h.finish(); const exact = h.review.getResult(), staleApply = button(h.reviewModal, "Apply selected changes");
+    const modal = h.navigate(), flow = h.flow(), gate = deferred();
+    if (phase === "tag") {
+      const original = h.manager.processFrontMatter.getMockImplementation()!;
+      h.manager.processFrontMatter.mockImplementation(async (...args) => { await original(...args); await gate.promise; });
+    } else {
+      const original = h.manager.renameFile.getMockImplementation()!;
+      h.manager.renameFile.mockImplementation(async (...args) => { await original(...args); await gate.promise; });
+    }
+    const staleConfirm = button(modal, "Confirm Apply"); staleConfirm.click(); await flush();
+    const confirmation = Reflect.get(flow, "confirmation") as OrganizationApplyConfirmationSession;
+    const observer = h.apply.mock.calls[0][2]!, retainedProgress = Reflect.get(flow, "progress");
+    const revoke = vi.spyOn(confirmation, "dispose");
+    h.lifetime.abort();
+    expectReviewReleased(h.reviewModal); expect(Reflect.get(modal, "flow")).toBe(flow);
+    expect(h.review.getResult()).toBe(exact); expect(Reflect.get(flow, "review")).toBe(exact);
+    expect(Reflect.get(flow, "owner")).toBe(h.review); expect(Reflect.get(flow, "confirmation")).toBe(confirmation);
+    expect(revoke).not.toHaveBeenCalled(); expect(h.dispose).not.toHaveBeenCalled();
+    observer({ total: 99, processed: 99, failed: 99, stale: 99, currentPath: "Synthetic-late.md" });
+    expect(Reflect.get(flow, "progress")).toBe(retainedProgress);
+    expect(acquireVaultMutationLease(h.vault, "Inbox/0.md", "Dest/0.md")).toBeUndefined();
+    gate.resolve(); await flush();
+    expect(revoke).toHaveBeenCalledOnce(); expect(h.dispose).toHaveBeenCalledOnce(); expectReleased(flow);
+    expect(h.review.getResult()).toBeUndefined(); expect(h.review.getAnalysisResult()).toBeUndefined();
+    observer({ total: 99, processed: 99, failed: 99, stale: 99, currentPath: "Synthetic-late.md" });
+    staleApply.click(); staleConfirm.click(); modal.onOpen(); flow.detach();
+    expectReleased(flow); expect(text(modal)).toBe(""); expect(h.apply).toHaveBeenCalledOnce();
+    expect(h.manager.processFrontMatter).toHaveBeenCalledOnce(); expect(h.manager.renameFile).toHaveBeenCalledTimes(phase === "tag" ? 0 : 1);
+    const lease = acquireVaultMutationLease(h.vault, "Inbox/0.md", "Dest/0.md"); expect(lease).toBeDefined(); lease?.release();
+  });
+  it("stale Next and completed Apply remain inert after handoff while Review modal releases its captured data", async () => {
+    const h = harness(2), staleNext = button(h.reviewModal, "Next");
+    h.finish(); const exact = h.review.getResult(), staleApply = button(h.reviewModal, "Apply selected changes");
+    expect(Reflect.get(h.reviewModal, "completedResult")).toBe(exact);
+    const modal = h.navigate(); expectReviewReleased(h.reviewModal);
+    staleNext.click(); staleApply.click();
+    expect(h.review.getResult()).toBe(exact); expect(h.apply).not.toHaveBeenCalled();
+    button(modal, "Cancel").click(); await flush();
+    staleNext.click(); staleApply.click(); h.reviewModal.onOpen();
+    expectReleased(h.flow()); expectReviewReleased(h.reviewModal); expect(text(h.reviewModal)).toBe("");
+    expect(h.confirm).not.toHaveBeenCalled(); expect(h.dispose).toHaveBeenCalledOnce();
   });
   it("zero eligible Review results never offer navigation", () => {
     const h = harness(1, true); h.finish(); expect(button(h.reviewModal, "Apply selected changes")).toBeUndefined();

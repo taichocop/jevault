@@ -129,3 +129,32 @@ lease or authorization foundation changes are included. No secrets or user
 contents are present in new fixtures/evidence. Full/staged diff, secret-pattern checks and whitespace
 review were performed before commit; exact resulting HEAD and CI belong to
 the PR/completion report.
+
+## Repair round 1 — retained Review data
+
+Current-HEAD review of `e8069a9a07577baaa0a6ac835041a113737e7362` identified
+[retained Review/confirmation references](https://github.com/taichocop/jevault/pull/112#discussion_r4229978937).
+The flow now drops the disposed confirmation and original owner after service
+settlement. Review/result remain only for the visible terminal summary; cancel
+before Confirm, detached settlement and later terminal Close clear them and reset
+progress without a retained currentPath, even when authority cleanup already ran.
+Detached or post-settlement progress callbacks cannot restore retained data.
+In-flight detach still preserves the exact original authority until API settlement.
+
+The Review modal's completed Apply handler reads an exact result from a clearable
+field instead of retaining it in its closure. Handoff/disposal drops that field
+and the modal's session reference. Next navigation captures only scalar noteCount,
+not the analysis results array. Selection, final confirmation, service authority
+and shared mutation lease implementations are unchanged.
+
+Executed on actual Node 22.13.0: focused UI/Review/entry/service suite **304 passed**;
+`npm exec --cache=/private/tmp/jevault-111-npm-cache --yes --package=node@22.13.0 -- npm run verify`
+**46 files / 1,372 tests passed**, plus lint, typecheck, production bundle/licenses
+and working/staged whitespace checks. Regressions assert released fields through
+retained stale Modal/DOM references, visible terminal-summary preservation, cancel,
+held Tag/Move unload with authority/lease validity until settlement, stale progress
+rejection and idempotent later Close. Full repair diff and secret/protected-scope
+checks were reviewed before commit. No further native UI attempts were made;
+runtime remains **STOPPED / NOT VERIFIED**, and the Downloads incident and unknown
+metadata state above remain unchanged. PR #112 stays draft; coordinator owns the
+new-HEAD CI and Codex review.

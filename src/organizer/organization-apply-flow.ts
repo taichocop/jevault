@@ -18,8 +18,9 @@ interface ApplyView {
 
 /** Reviewから移譲された唯一のowner。UI切断と認可破棄をAPI settlementで分離する。 */
 export class OrganizationApplyFlow {
-  private readonly confirmation: OrganizationApplyConfirmationSession;
-  private readonly review?: OrganizationReviewResult;
+  private confirmation?: OrganizationApplyConfirmationSession;
+  private review?: OrganizationReviewResult;
+  private owner?: OrganizationReviewSession;
   private readonly operation = new AbortController();
   private phase: OrganizationApplyPresentation["phase"] = "confirming";
   private progress: OrganizationApplyProgress;
@@ -35,8 +36,9 @@ export class OrganizationApplyFlow {
     view?.close();
   };
 
-  constructor(vault: object, private readonly owner: OrganizationReviewSession,
+  constructor(vault: object, owner: OrganizationReviewSession,
     private readonly service: Pick<OrganizationApplyService, "apply">, private readonly ownerSignal: AbortSignal) {
+    this.owner = owner;
     this.review = owner.getResult();
     this.confirmation = new OrganizationApplyConfirmationSession(vault, owner);
     this.progress = organizationApplyProgress(this.review?.reviewed.length ?? 0, []);
@@ -71,16 +73,21 @@ export class OrganizationApplyFlow {
     this.phase = "running";
     this.publish();
     try {
-      const intent = this.confirmation.confirm();
+      const intent = this.confirmation?.confirm();
       if (!intent) {
         this.unavailableConfirmation = true;
         return;
       }
-      this.result = await this.service.apply(intent, this.operation.signal, progress => {
+      const result = await this.service.apply(intent, this.operation.signal, progress => {
+        // 切断後/settlement後のobserverからpathや結果の保持を復活させない。
+        if (this.detached || this.phase !== "running") return;
         this.progress = progress;
         this.publish();
       });
-      this.progress = this.result.progress;
+      if (!this.detached) {
+        this.result = result;
+        this.progress = result.progress;
+      }
     } catch {
       // 契約外例外で変更なしとは断言しない。既知のprogress以外の結果も捏造しない。
       this.unavailableConfirmation = true;
@@ -107,9 +114,18 @@ export class OrganizationApplyFlow {
   }
 
   private cleanup(): void {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.confirmation.dispose();
-    this.owner.dispose();
+    if (!this.disposed) {
+      this.disposed = true;
+      this.confirmation?.dispose();
+      this.confirmation = undefined;
+      this.owner?.dispose();
+      this.owner = undefined;
+    }
+    // 表示中のterminal summaryだけは保持し、後日のcloseでも参照を解放する。
+    if (this.detached) {
+      this.review = undefined;
+      this.result = undefined;
+      this.progress = organizationApplyProgress(0, []);
+    }
   }
 }
