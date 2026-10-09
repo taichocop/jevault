@@ -2,10 +2,12 @@
 
 **V0.5.0 RELEASE READINESS: NO-GO**
 
-Audit date: 2026-10-09 JST. Scope: [#113](https://github.com/taichocop/jevault/issues/113).
+Initial audit: 2026-10-09 JST; resumed host/provider verification: 2026-10-10 JST. Scope: [#113](https://github.com/taichocop/jevault/issues/113).
 This is a readiness audit, not release execution. No version change, tag, Release,
-deployment, merge, repository setting change, real API credential use, or chargeable
-provider request is authorized or performed. #114 remains gated and #42 remains open.
+deployment, merge or repository setting change is authorized or performed.
+The human later authorized a dedicated SecretStorage credential and a ceiling of
+100 TypeSafe requests; four were performed successfully. #114 remains gated and
+#42 remains open.
 Residual risks have not been accepted by the owner.
 
 ## Baseline and evidence identity
@@ -139,7 +141,7 @@ Release: immutable=false, expected historical release; that does not establish
 future-release immutability setting. Future immutability, empty bypass and trusted
 creator/editor audits remain NOT VERIFIED; require owner evidence.
 
-## Native host attempt and mandatory safety stop
+## Initial native host attempt and mandatory safety stop — historical
 
 Official installed Desktop: 1.14.4, also current official latest release returned
 by the [vendor release API](https://api.github.com/repos/obsidianmd/obsidian-releases/releases/latest)
@@ -171,26 +173,28 @@ is an unintended observation, not proof of data mutation or a successful test.
 No OS accessibility/security setting was changed. Only the isolated processes
 created for this audit were terminated; the existing user process was untouched.
 
-Further native validation requires reliably selecting the isolated process/window
-and explicit resumption after this safety stop. Do not continue using a generic
-Obsidian app selector or a Vault picker that could select another location.
+The human subsequently requested actual desktop verification and safely resumed
+this work with PID-specific isolated selection. The historical stop above is
+preserved. Generic Obsidian selectors and Vault pickers were not reused. The
+current authoritative outcomes are in [resumed runtime verification](ISSUE_113_RUNTIME_VERIFICATION.md)
+and its [finite evidence](ISSUE_113_RUNTIME_EVIDENCE.json).
 
-| Required actual host check | #113 result |
+| Required actual host check | Current #113 result |
 | --- | --- |
-| Minimum 1.11.4 enable/Settings/commands/Explorer/Preview/startup errors | NOT VERIFIED; installed version alone is not compatibility evidence. |
-| Current 1.14.4 clean install/enable | NOT VERIFIED; isolated Vault/trust prompt observed only. |
-| Manual Move/Manual Tag Apply | Unit regressions PASS; native regression NOT VERIFIED. |
-| Complete Organizer UI/Tag-only/Move-only/both/Keep/partial/Stop | Unit regressions PASS; native NOT VERIFIED. Prior #112 fake-analysis native suite is historical only. |
-| Actual Plugin Disable: idle/analysis/Review/final confirmation/in-flight Tag/in-flight Move | NOT VERIFIED in every boundary. No entry.dispose unit/harness pass is substituted. |
-| 0.1.0 → candidate settings/Secret-reference upgrade | NOT VERIFIED natively. Static loadSettings retains typed values; this is not host install/upgrade proof. |
-| Real TypeSafe Classify/Tag Suggest/Organizer both | NOT VERIFIED; no credential/request authorization; requests executed: 0. |
+| Minimum 1.11.4 enable/Settings/commands/Explorer/Preview/startup | VERIFIED: actual apiVersion 1.11.4, fake provider UI, host file-menu event, direct/recursive Preview, no observed startup failure. |
+| Current 1.14.4 clean install/enable | VERIFIED in fresh synthetic profile; actual production assets unchanged. |
+| Manual Move/Manual Tag Apply | VERIFIED in actual host with fake analysis, explicit confirmation and original-source checks. |
+| Complete Organizer UI/Tag-only/Move-only/both/Keep/partial/Stop | VERIFIED: complete 23-case host local suite; fake analysis, real FileManager operations, partial/settlement gates. |
+| Actual Plugin Disable: idle/analysis/Review/final confirmation/in-flight Tag/in-flight Move | VERIFIED in all six boundaries through actual host Disable/onunload/unregistration; in-flight cases also prove shared lease retention/release and no original UI revival. |
+| 0.1.0 → candidate settings/Secret-reference upgrade | VERIFIED: actual public 0.1.0 then exact candidate assets, typed settings/reference and file hashes retained. Candidate remains 0.1.0 metadata; actual 0.5.0 updater/real credential transfer not verified. |
+| Real TypeSafe Classify/Tag Suggest/Organizer both | VERIFIED: explicitly approved dedicated SecretStorage credential, ceiling 100, actual requests four, retry zero, no mutation. |
 
-A future bounded provider smoke can use one synthetic note (up to 4 requests:
-Classify 1, Tag Suggest 1, Organizer Folder 1 + Tag 1), only after explicit human
-approval and an approved SecretStorage credential. No actual key should be copied
-into the repository, shell, logs or evidence. Upgrade must use non-secret synthetic
-references and distinguish current 0.1.0-metadata candidate replacement from a
-real 0.5.0 package upgrade.
+These are bounded actual-host results, not unit-test substitutes. Most flow inputs
+were DOM-driven by temporary diagnostic plugins. Physical right-click, all keyboard
+interactions/layouts/platforms and external-sync races remain outside this evidence.
+Minimum/upgrade one-time startup diagnostics performed no real provider/mutation
+work; temporary helpers are now disabled. See the resumed record for failed harness
+attempts, isolation checks, instrumentation limits and cleanup.
 
 ## Security boundary review
 
@@ -216,20 +220,20 @@ Review completion, load, or settings changes in inspected implementation.
 | Risk | Classification | Required disposition |
 | --- | --- | --- |
 | Supported-runtime unit/static/build/license/hash checks | VERIFIED (base; exact final HEAD evidence in PR) | Keep exact-HEAD CI/local evidence. |
-| Actual Plugin Disable at all boundaries | NOT VERIFIED; GO blocker | Safely resume and dispatch actual host disable; verify settlement and lease/UI truth. |
-| Real TypeSafe integration | NOT VERIFIED; GO blocker | Explicit bounded-request/credential approval, then smoke, or explicit owner disposition under #113. |
-| Obsidian minimum 1.11.4 | NOT VERIFIED; GO blocker | Production enable/Settings/commands/Explorer/Preview/runtime check. |
-| Current stable 1.14.4 / macOS UI / clean install / complete regressions | NOT VERIFIED; GO blocker | Safe isolated host selection and actual flow execution. |
+| Actual Plugin Disable at six boundaries | VERIFIED | Actual host dispatch, settlement/lease/UI observations; timing-gate limits documented. |
+| Real TypeSafe integration | VERIFIED (bounded smoke) | Human-approved ceiling 100; four requests passed, no retry or mutation; not a reliability guarantee. |
+| Obsidian minimum 1.11.4 | VERIFIED (bounded runtime) | Actual apiVersion/title, production enable/Settings/fake command UI/Explorer event/Preview passed. |
+| Current stable 1.14.4 / clean install / representative regressions | VERIFIED | Actual host/production code, 23 local cases and real provider smoke; exhaustive physical input/layout not claimed. |
 | Windows/Linux runtime | NOT VERIFIED | Owner acceptance or actual validation; no assumed portability pass. |
 | Editor/other-plugin/external sync races | NOT VERIFIED | Validate representative races or explicitly accept remaining limits. |
 | Jevault locking versus external writes | KNOWN LIMITATION; NOT ACCEPTED | Jevault-only shared leases are not general Vault isolation; owner disposition required. |
 | Non-atomic Tag+Move | KNOWN LIMITATION; NOT ACCEPTED | Explicit partial truth/no rollback disclosed; owner disposition required. |
-| 0.1.0 → candidate upgrade and preserved settings/reference | NOT VERIFIED; GO blocker | Dedicated host upgrade check; actual 0.5.0 package remains later #114 evidence. |
+| 0.1.0 → candidate upgrade and preserved settings/reference | VERIFIED with limit | Actual public assets replacement; synthetic reference only. Real 0.5.0 package/updater and credential transfer remain #114 evidence. |
 | Active protected tag ruleset | BLOCKER | None present; separate owner action/authorization and read-back required. |
 | Future Release immutability / trusted creators/editors | NOT VERIFIED; GO blocker | Owner confirms current prerequisites; historical immutable=false is not future-setting proof. |
 | Private Vulnerability Reporting | VERIFIED | enabled=true API observation. |
 | Six development advisory entries / no prod advisory | KNOWN LIMITATION; NOT ACCEPTED | Track dev risk separately; no unrelated updates in this audit. |
-| Native safety stop / unintended fallback observation | BLOCKER for continuing native work | Reliable isolated selection and explicit human resumption; no user data retained in evidence. |
+| Native safety stop / unintended fallback observation | Historical incident; continuation resolved | Human resumed; PID/Vault/marker guards used. Unintended read remains disclosed, no user data retained. |
 
 ## Acceptance criteria accounting
 
@@ -244,12 +248,12 @@ satisfies only the explicit qualify/block alternative, not the corresponding tes
 | 4 | npm ci + verify on exact candidate | Base PASS; final committed HEAD result in PR evidence. |
 | 5 | Non-publishing workflow passes | Final audit-PR Actions result in PR evidence. |
 | 6 | Exact 3 assets | VERIFIED locally. |
-| 7–12 | Minimum, stable, clean install, Manual Move, Manual Tag Apply, full Organizer native flow | NOT VERIFIED; blockers. |
-| 13 | Actual disable verified or explicitly qualifies/blocks GO | Explicitly blocks GO; actual event test NOT VERIFIED. |
-| 14 | Real provider verified or explicitly qualifies/blocks GO | Explicitly blocks GO; no approval, request count 0. |
-| 15 | Upgrade/settings compatibility checked | NOT VERIFIED natively. |
+| 7–12 | Minimum, stable, clean install, Manual Move, Manual Tag Apply, full Organizer host flow | VERIFIED within documented diagnostic/input/platform limits. |
+| 13 | Actual disable verified or explicitly qualifies/blocks GO | VERIFIED: six actual host boundaries; settlement/shared lease/no revival observed. |
+| 14 | Real provider verified or explicitly qualifies/blocks GO | VERIFIED: human-approved SecretStorage, four of ceiling 100 requests; no retry. |
+| 15 | Upgrade/settings compatibility checked | VERIFIED bounded host replacement from public 0.1.0; real 0.5.0 package limit disclosed. |
 | 16 | No unapproved flow/Secret/body logging/telemetry found | Source/diff review found no product logging/new-flow defect; unintended fallback observation disclosed above. |
-| 17 | No automatic/background mutation found | Source review and existing regressions PASS; native limit preserved. |
+| 17 | No automatic/background mutation found | Source/diff review PASS; host no-op/pre-confirm/upgrade checks passed. |
 | 18 | No version/tag/release created | Scope preserved; final remote read-back in PR evidence. |
 | 19 | Residual risks classified | Table above; none silently ACCEPTED. |
 | 20 | Release-notes draft exists | Draft below and audit PR. |
@@ -271,21 +275,19 @@ writes. Suggestions require a TypeSafe account, your SecretStorage API key, netw
 access and TypeSafe-managed credits. Preview/Review/Apply are local; analysis can
 send synthetic or user-selected note data as disclosed in PRIVACY.
 
-Desktop only. Current claimed minimum remains 1.11.4, pending actual compatibility
-verification. Do not publish this draft until release blockers are resolved and
+Desktop only. Minimum 1.11.4 was verified in the bounded macOS host checks above.
+Do not publish this draft until release blockers are resolved and
 limitations are explicitly reviewed by the owner.
 
 ## Required human gates before #114
 
-1. Resume native testing only after safe isolated host/window targeting is established.
-2. Complete minimum/current production checks, full native regressions, actual disable
-   and upgrade; re-audit exact candidate if product code changes.
-3. Approve the bounded TypeSafe smoke and SecretStorage credential, or explicitly
-   document the owner's permitted disposition of that unverified item.
-4. Explicitly disposition remaining external-race/platform/non-atomic/dev-advisory risks.
-5. Separately authorize/configure and verify tag protections and future immutability;
-   audit trusted creators/editors and bypass list. No repository-setting authority is
-   implied by this audit.
-6. Review independent exact-HEAD review and CI evidence, confirm readiness GO, then
+1. Explicitly disposition remaining external-race/platform/non-atomic/development
+   advisory risks; no residual risk was silently marked ACCEPTED.
+2. Separately authorize/configure and verify tag protections and future immutability;
+   audit trusted creators/editors and bypass list. No repository-setting authority
+   is implied by this audit; the current ruleset read-back is still empty.
+3. Review independent exact-HEAD review and CI evidence, confirm readiness GO, then
    provide fresh #114 authorization for version/tag/Release actions. Merge also needs
    separate explicit authorization. A NO-GO audit PR being reviewed/merged is not GO.
+4. In #114, verify actual 0.5.0 metadata/package/updater behavior after authorized
+   version changes; the bounded 0.1.0-metadata host replacement cannot establish it.
