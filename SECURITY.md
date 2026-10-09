@@ -18,7 +18,7 @@ If that private reporting flow is unavailable, do not include sensitive vulnerab
 
 ## Vault safety
 
-Intentional Vault mutations are limited to explicitly confirmed **Manual Move** and **Manual Tag Apply**. Selection, suggestion completion, plugin load, and settings changes never authorize mutation.
+User-reachable Vault mutations are limited to explicitly confirmed **Manual Move** and **Manual Tag Apply**. The dormant Organizer Apply foundation described below has no production UI entry point. Selection, suggestion completion, plugin load, and settings changes never authorize mutation.
 
 ### Folder Organizer analysis
 
@@ -39,6 +39,16 @@ Folder and Tag drafts initially remain explicitly unreviewed, separate from anal
 Finish requires explicit Folder intent for every reviewable Note; failed Notes are excluded and zero reviewable Notes cannot finish. Only explicit **Finish review** converts untouched Tags into an explicit zero-Tag choice. It returns immutable intent preserving the exact NoteSource/NoteSnapshot and separate analysis. Review selection and completion are not Apply confirmation, stale-safety proof, or mutation authority. No Apply capability or confirmation token is created.
 
 All Review actions perform zero TypeSafe/Secret/body/recollection/re-analysis/mutation work. Draft/result ownership stays in operation memory with no persistence, polling, timers, or background work. Close/Esc/X discards unfinished drafts; close/unload clears session references and invalidates late handlers. Terminal copy explicitly states no Vault changes. Existing Manual Move and Manual Tag Apply remain the only mutation paths.
+
+### Dormant Folder Organizer Apply foundation
+
+`OrganizationApplyService` exists for future explicit final confirmation, but no current UI, command, Review completion handler, or background task invokes it. An `OrganizationReviewResult` alone grants no mutation authority. A separate memory-only `OrganizationApplyConfirmationSession` issues an opaque capability bound to the actual Vault, exact Review result/selection and owning Review/confirmation lifetime. Copies, recreated tokens, replacement, disposal and replay fail closed. Each accepted attempt consumes the capability even on busy, stale, failure or later cancellation; an already-aborted call does not consume it.
+
+Only reviewed Notes are processed, sequentially in Review order; unavailable Notes are excluded. Each Note holds one shared source/selected-target/TFile lease across strict original identity/path/Markdown/mtime/size validation, pre-Tag destination validation, additive Tag processing, post-Tag baseline and Move settlement. Selected destinations must still be existing eligible folders under current settings with the exact safe target and no collision. Keep-current and the same current folder make no rename call; zero selected Tags make no frontmatter call.
+
+Current frontmatter inside `FileManager.processFrontMatter` is the strict Tag duplicate/preservation authority. Supported existing Tags, order/duplicates and unrelated fields are retained; unsupported values fail safely. Callback validation checks original source/snapshot and lifetime before assignment. After an applied **or unchanged** Tag call settles, the exact source is re-resolved for an immutable post-Tag snapshot. No Tag call means Move retains the original Review snapshot. Move revalidates source, baseline, destination, lifetime and cancellation immediately before `FileManager.renameFile`.
+
+Tag failure prevents Move. Tag success plus Move failure is explicit partial success with no rollback or automatic retry. Cancellation/revocation prevent new mutations while already-started APIs retain their lease until actual settlement; earlier terminal results remain. Local failures continue to later Notes, while invalid authority, internal invariants or throwing progress observers stop the operation. Results/progress are immutable and return finite safe reasons, with no raw errors, frontmatter, body, provider response or absolute filesystem paths. Apply performs no body read/hash, Secret lookup, TypeSafe request, network call, re-analysis or target recollection. Runtime verification uses a separate disposable synthetic Vault and isolated verification plugin, never the normal plugin or a real user Vault.
 
 ### Manual Move
 
@@ -66,11 +76,11 @@ Vault access must use Obsidian APIs. Tests must never operate on a real user Vau
 
 ### Shared mutation coordination
 
-Manual Move and Manual Tag Apply use one memory-only Jevault mutation domain keyed by the actual Vault object, including across distinct service instances. Source and target paths share one NFC-normalized, conservative lowercase comparison namespace; exact source TFile identity also remains leased across a rename. Same-source, same-target, and source-target crossing conflicts fail immediately as busy, with no wait queue. Unrelated notes and targets can proceed concurrently; this is not a global Vault mutex.
+Manual Move, Manual Tag Apply and the dormant Organizer Apply core use one memory-only Jevault mutation domain keyed by the actual Vault object, including across distinct service instances. Source and target paths share one NFC-normalized, conservative lowercase comparison namespace; exact source TFile identity also remains leased across a rename. Same-source, same-target, and source-target crossing conflicts fail immediately as busy, with no wait queue. Unrelated notes and targets can proceed concurrently; this is not a global Vault mutex.
 
 Coordination follows each feature's existing authorization boundary and grants no mutation authority. Accepted Tag confirmations remain single-use even when busy. Leases are acquired synchronously without partial reservations, released idempotently in finally, and held until the actual processFrontMatter or renameFile Promise settles, including after cancellation. No lock state is persisted.
 
-This excludes Jevault-vs-Jevault overlap only. It does not lock editor, other-plugin, filesystem, OS, or sync-provider writes. Existing source, destination, collision, lifetime, and current-frontmatter validation remains mandatory. It provides no transaction isolation or rollback guarantee and adds no Organizer Apply capability.
+This excludes Jevault-vs-Jevault overlap only. It does not lock editor, other-plugin, filesystem, OS, or sync-provider writes. Existing source, destination, collision, lifetime, and current-frontmatter validation remains mandatory. It provides no transaction isolation or rollback guarantee and grants no Organizer Apply authority on its own.
 
 ## Network safety
 

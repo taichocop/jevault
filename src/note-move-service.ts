@@ -49,6 +49,36 @@ function pathKey(path: string): string {
   return path.normalize("NFC").toLowerCase();
 }
 
+export type MoveValidation =
+  | { readonly status: "validated"; readonly file: TFile; readonly plan: MovePlan; readonly unchanged: boolean }
+  | Extract<MoveResult, { status: "failure" }>;
+
+/** Tag前にも使える非変更検証。Manual Moveの認可やmutation APIを代用しない。 */
+export function validateMoveSource(
+  vault: Pick<Vault, "getAbstractFileByPath">,
+  source: NoteSource,
+  destination: string,
+): MoveValidation {
+  const plan = createMovePlan(source.path, destination);
+  if (plan === null) return { status: "failure", reason: "invalid-destination" };
+  const file = vault.getAbstractFileByPath(source.path);
+  if (!(file instanceof TFile) || !source.matches(file) ||
+    file.extension.toLowerCase() !== "md" ||
+    file.name !== source.path.slice(source.path.lastIndexOf("/") + 1)) {
+    return { status: "failure", reason: "source-changed" };
+  }
+  const folder = vault.getAbstractFileByPath(destination);
+  if (!(folder instanceof TFolder) || folder.path !== destination) {
+    return { status: "failure", reason: "destination-missing" };
+  }
+  const unchanged = source.path === plan.targetPath;
+  if (!unchanged && (vault.getAbstractFileByPath(plan.targetPath) !== null ||
+    folder.children.some((child) => pathKey(child.name) === pathKey(file.name)))) {
+    return { status: "failure", reason: "collision" };
+  }
+  return { status: "validated", file, plan, unchanged };
+}
+
 /** 認可とlockの下で共有する境界。検証からrenameFile開始までawaitを置かない。 */
 export async function moveValidatedSource(
   vault: Pick<Vault, "getAbstractFileByPath">,
@@ -57,33 +87,23 @@ export async function moveValidatedSource(
   destination: string,
   signal: AbortSignal,
   validateRevision: (file: TFile) => boolean = () => true,
+  onValidationError?: () => void,
 ): Promise<MoveResult> {
-  const plan = createMovePlan(source.path, destination);
-  if (plan === null) return { status: "failure", reason: "invalid-destination" };
+  let mutationStarted = false;
   try {
-    const file = vault.getAbstractFileByPath(source.path);
-    if (!(file instanceof TFile) || !source.matches(file) ||
-      file.extension.toLowerCase() !== "md" ||
-      file.name !== source.path.slice(source.path.lastIndexOf("/") + 1)) {
-      return { status: "failure", reason: "source-changed" };
-    }
-    const folder = vault.getAbstractFileByPath(destination);
-    if (!(folder instanceof TFolder) || folder.path !== destination) {
-      return { status: "failure", reason: "destination-missing" };
-    }
-    if (source.path === plan.targetPath) {
-      return { status: "failure", reason: "already-in-folder" };
-    }
-    if (vault.getAbstractFileByPath(plan.targetPath) !== null ||
-      folder.children.some((child) => pathKey(child.name) === pathKey(file.name))) {
-      return { status: "failure", reason: "collision" };
-    }
+    const validated = validateMoveSource(vault, source, destination);
+    if (validated.status === "failure") return validated;
+    const { file, plan } = validated;
+    if (validated.unchanged) return { status: "failure", reason: "already-in-folder" };
     if (!validateRevision(file)) return { status: "failure", reason: "source-changed" };
     // 最終確認からAPI呼出しまでawaitを挟まない。開始後は取消や独自rollbackを行わない。
     if (signal.aborted) return { status: "cancelled" };
+    mutationStarted = true;
     await fileManager.renameFile(file, plan.targetPath);
     return { status: "moved", destination };
   } catch {
+    // Organizerは検証内部異常で全体停止し、API開始後のrename失敗とは区別する。
+    if (!mutationStarted) onValidationError?.();
     return { status: "failure", reason: "unexpected" };
   }
 }
