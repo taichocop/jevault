@@ -14,11 +14,13 @@ export class OrganizationReviewModal extends Modal {
   private readonly folderGroup = `jevault-review-folder-${OrganizationReviewModal.nextId++}`;
   private opened = false;
   private disposed = false;
+  private handedOff = false;
   private index = 0;
   private generation = 0;
   private readonly closeFromOwner = (): void => this.close();
 
-  constructor(app: App, private readonly session: OrganizationReviewSession, private readonly ownerSignal: AbortSignal) {
+  constructor(app: App, private readonly session: OrganizationReviewSession, private readonly ownerSignal: AbortSignal,
+    private readonly openApply?: (session: OrganizationReviewSession) => void) {
     super(app);
   }
 
@@ -38,10 +40,23 @@ export class OrganizationReviewModal extends Modal {
     const editable = () => this.active() && this.generation === generation && !this.session.getResult();
     this.contentEl.empty();
     this.contentEl.createEl("h2", { text: "Organization Review" });
-    this.contentEl.createEl("p", { text: "Review selections only. No changes will be made to your Vault. Apply is unavailable." });
-    if (this.session.getResult()) {
+    this.contentEl.createEl("p", { text: "Review selections only. Finish review makes no changes to your Vault." });
+    const result = this.session.getResult();
+    if (result) {
       this.contentEl.createEl("p", { text: "Review complete.", attr: { role: "status" } });
       this.contentEl.createEl("p", { text: "No changes were made to your Vault." });
+      if (this.openApply && result.reviewed.length > 0) {
+        const apply = this.contentEl.createEl("button", { text: "Apply selected changes", cls: "mod-cta" });
+        apply.addEventListener("click", () => {
+          if (!this.active() || this.generation !== generation || this.session.getResult() !== result) return;
+          apply.disabled = true;
+          // close前に所有権を移譲し、元session/resultを確認からAPI settlementまで維持する。
+          this.handedOff = true;
+          this.close();
+          try { this.openApply!(this.session); }
+          catch { this.session.dispose(); }
+        });
+      }
       this.closeButton("Close");
       return;
     }
@@ -147,11 +162,12 @@ export class OrganizationReviewModal extends Modal {
     this.contentEl.createEl("button", { text }).addEventListener("click", () => { if (this.active()) this.close(); });
   }
   private dispose(): void {
+    if (this.disposed) return;
     this.opened = false;
     this.disposed = true;
     this.generation++;
     this.ownerSignal.removeEventListener("abort", this.closeFromOwner);
-    this.session.dispose();
+    if (!this.handedOff) this.session.dispose();
   }
   close(): void { this.dispose(); super.close(); }
   onClose(): void { this.dispose(); this.contentEl.empty(); }

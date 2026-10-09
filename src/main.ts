@@ -28,6 +28,7 @@ import { TargetFileCollector } from "./organizer/target-file-collector";
 import { OrganizationTargetReader } from "./organizer/organization-target-reader";
 import { FolderOrganizerService } from "./organizer/folder-organizer-service";
 import { OrganizationReviewService } from "./organizer/organization-review-service";
+import { OrganizationApplyService } from "./organizer/organization-apply-service";
 
 export default class JevaultPlugin extends Plugin {
   settings: JevaultSettings = loadSettings(undefined);
@@ -106,6 +107,7 @@ export default class JevaultPlugin extends Plugin {
         this.vaultService, new TagDiscoveryService(this.app.vault, this.app.metadataCache),
         new ExistingTagSnapshotService(this.app.vault, this.app.metadataCache), () => this.settings,
       ),
+      new OrganizationApplyService(this.app.vault, this.app.fileManager, () => this.settings),
     );
     this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => {
       this.folderOrganizerEntry?.addToMenu(menu, file);

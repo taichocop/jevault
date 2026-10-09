@@ -306,7 +306,7 @@ describe("Review lifecycle (#101 tests 80–84)", () => {
 describe("Review documentation (#101 tests 85–87)", () => {
   it.each(["README.md", "PRIVACY.md", "SECURITY.md"])("%s describes local Review, no body/Secret/provider work and no Apply authority", path => {
     const doc = readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
-    expect(doc).toContain("Review results"); expect(doc).toContain("Finish review"); expect(doc).toContain("Apply remains unavailable");
+    expect(doc).toContain("Review results"); expect(doc).toContain("Finish review"); expect(doc).toContain("Confirm Apply");
     expect(doc).toMatch(/Secret/); expect(doc).toMatch(/body/); expect(doc).toMatch(/TypeSafe/);
     expect(doc).toMatch(/mutation authority|modify your Vault/);
   });

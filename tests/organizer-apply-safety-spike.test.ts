@@ -446,11 +446,11 @@ describe("#103 cancellation, immutable partial/history and privacy evidence 47â€
       .toEqual({ status: "failure", reason: "invalid-confirmation" });
     expect(h.manager.processFrontMatter).not.toHaveBeenCalled();
   });
-  it("production imports no spike; Review and entry contain no mutation/confirmation wiring", () => {
+  it("production imports no spike; Review and entry contain no direct mutation or token issuance", () => {
     for (const name of ["main.ts", "organizer/organization-review-modal.ts", "organizer/folder-organizer-entry.ts"]) {
       const source = readFileSync(new URL(`../src/${name}`, import.meta.url), "utf8");
-      expect(source).not.toMatch(/organizer-apply-safety-spike|OrganizationApplyService|OrganizerConfirmationSession|runConfirmedSpike/);
-      if (name !== "main.ts") expect(source).not.toMatch(/processFrontMatter|renameFile|\.apply\(/);
+      expect(source).not.toMatch(/organizer-apply-safety-spike|OrganizerConfirmationSession|runConfirmedSpike/);
+      if (name !== "main.ts") expect(source).not.toMatch(/processFrontMatter|renameFile|\.apply\(|\.confirm\(/);
     }
     expect(createMovePlan("Inbox/A.md", "Dest")).toEqual({ sourcePath: "Inbox/A.md", destination: "Dest", targetPath: "Dest/A.md" });
   });
