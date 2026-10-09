@@ -15,7 +15,7 @@ Residual risks have not been accepted by the owner.
 
 ## Baseline and evidence identity
 
-- Existing Codex/Orca worktree reused: `/Users/taichi/.codex/worktrees/8cb7/Jevault`.
+- Existing Codex/Orca worktree reused from a dedicated local worktree directory (absolute path omitted).
 - Orca identity: `wt2:local:6e70f3fa-7fe8-46ef-b732-7098becd4010`;
   Orca 1.4.222, linked Issue 113, display name Jevault Issue 113 Release Readiness.
 - Initial detached HEAD: `1d20040766892b9e63a9d5df26b06a401d6281b4`; clean tracked/untracked status.
@@ -174,11 +174,11 @@ silently approved.
 
 Official installed Desktop: 1.14.4, also current official latest release returned
 by the [vendor release API](https://api.github.com/repos/obsidianmd/obsidian-releases/releases/latest)
-at audit time. Official 1.11.4 DMG was downloaded, read-only mounted in /private/tmp,
+at audit time. Official 1.11.4 DMG was downloaded and read-only mounted in a disposable local temporary directory,
 and its CFBundleShortVersionString confirmed 1.11.4. These are version/setup
 observations, not plugin compatibility passes.
 
-Fresh disposable production Vaults/profiles were prepared only in /private/tmp:
+Fresh disposable production Vaults/profiles were prepared only in isolated local temporary directories:
 
 - Stable: `Jevault-113-Synthetic-Stable-j5aj69fv`.
 - Minimum: `Jevault-113-Synthetic-Min-cf1yc3sg`.
