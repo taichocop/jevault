@@ -159,7 +159,13 @@ Minimum/current desktop, representative regressions, six actual Disable
 boundaries, real provider smoke and bounded upgrade are now VERIFIED within the
 limits above. The initial safety stop was resumed by the human and safe targeting
 was established; its unintended read remains disclosed in the original audit.
-**V0.5.0 RELEASE READINESS: NO-GO** remains because no tag ruleset is present,
-future Release immutability/trusted editor/creator prerequisites are unverified,
-and remaining platform/external-race/non-atomic/development risks have no human
-acceptance. No version, tag, Release, deployment, merge or settings change occurred.
+At completion of these runtime checks, no tag ruleset was present and future
+Release immutability was unverified. No settings change occurred during the runtime
+verification. On 2026-10-10 JST, the human subsequently authorized the two protection
+settings; their successful API read-back is recorded in the
+[current readiness audit](ISSUE_113_RELEASE_READINESS.md#non-publishing-release-validation-and-owner-prerequisites).
+**V0.5.0 RELEASE READINESS: NO-GO** remains because the trusted editor/creator audit
+is incomplete and remaining platform/external-race/non-atomic/development and
+actual 0.5.0 updater risks lack human disposition. Runtime observations and the four
+real TypeSafe requests are unchanged; they were not repeated for this settings
+update. No version, tag, Release, deployment or merge occurred.

@@ -2,7 +2,7 @@
 
 This checklist applies to future releases. The existing 0.1.0 release was published before this workflow and has no retroactive attestation. Use only a dedicated, isolated test Vault for manual verification.
 
-Readiness and release execution are separate gates. Issue #113 audits the v0.5.0 candidate without changing versions, tags, Releases, repository settings, or deploying. Issue #114 requires readiness GO on the exact candidate and fresh explicit human authorization. Never mark an unexecuted host/provider check as passed because unit tests pass; record NOT VERIFIED and its effect on GO / NO-GO.
+Readiness and release execution are separate gates. Issue #113 audits the v0.5.0 candidate without changing versions, tags, Releases, or deploying. Repository settings require separate explicit human authorization; permission to change them does not authorize release execution or accept residual risks. Issue #114 requires readiness GO on the exact candidate and fresh explicit human authorization. Never mark an unexecuted host/provider check as passed because unit tests pass; record NOT VERIFIED and its effect on GO / NO-GO.
 
 ## Automated verification
 

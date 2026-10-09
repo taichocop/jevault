@@ -4,7 +4,10 @@
 
 Initial audit: 2026-10-09 JST; resumed host/provider verification: 2026-10-10 JST. Scope: [#113](https://github.com/taichocop/jevault/issues/113).
 This is a readiness audit, not release execution. No version change, tag, Release,
-deployment, merge or repository setting change is authorized or performed.
+deployment or merge is authorized or performed. On 2026-10-10 JST the human
+separately authorized the two release-protection settings described below and
+then requested this PR evidence update. That authorization does not accept
+residual risks or authorize credential changes or #114 execution.
 The human later authorized a dedicated SecretStorage credential and a ceiling of
 100 TypeSafe requests; four were performed successfully. #114 remains gated and
 #42 remains open.
@@ -129,17 +132,43 @@ real attestation or immutable publication; those remain #42/#114 future evidence
 Current audit-PR validate success/release skipped must be confirmed on exact HEAD
 and linked in PR evidence; historical PR #112 CI is not a substitute.
 
-**BLOCKER:** both connector `rulesets?targets=tag` and authenticated owner gh API
-`repos/taichocop/jevault/rulesets` returned an empty list. No active all-tag
-update/deletion ruleset is present. The release job is expected to fail closed.
-Owner must separately authorize/configure protections and confirm exclusions,
-bypass list, trusted tag creators and release editors before #114. No setting was
-changed here.
+The initial audit found no tag ruleset and did not establish future-release
+immutability. Those historical results are superseded by the separately authorized
+settings change and authenticated owner API read-back on 2026-10-10 JST:
 
-Private Vulnerability Reporting API: enabled=true (VERIFIED). Existing 0.1.0
-Release: immutable=false, expected historical release; that does not establish
-future-release immutability setting. Future immutability, empty bypass and trusted
-creator/editor audits remain NOT VERIFIED; require owner evidence.
+| Prerequisite | Current observed value | Disposition |
+| --- | --- | --- |
+| [Protect all release tags](https://github.com/taichocop/jevault/rules/24800998), ID 24800998 | target `tag`; enforcement `active`; include `["~ALL"]`; exclude `[]`; rules `update`, `deletion`; bypass actors `[]` | VERIFIED; the initial missing-ruleset blocker is resolved. |
+| Future Release immutability | `GET /repos/taichocop/jevault/immutable-releases`: `enabled=true`, `enforced_by_owner=false` | VERIFIED repository setting; actual future publication remains #114 evidence. |
+| Private Vulnerability Reporting | `enabled=true` | VERIFIED; unchanged. |
+| Collaborators and deploy keys | Only `taichocop`, role `admin`; deploy keys count 0 | VERIFIED for these API-visible actors only; not a complete credential inventory. |
+| Existing tag and Release | Only `0.1.0`; tag object `ec1dc9f9a6f40629a269d6110aac4e8370d5ccf5`; Release `immutable=false` | Historical Release unchanged; all-tag rules now protect its tag. |
+
+Owner-authorized operations were limited to creating that ruleset and enabling
+future Release immutability. No collaborator role, App permission, OAuth scope,
+PAT or deploy key was changed. No destructive tag-update/deletion probe was run.
+Read-back confirms the existing release workflow's protection prerequisites;
+the tag-triggered release job was not executed.
+
+The ruleset has no `creation` rule: existing writers can still create a new tag
+and trigger the release job. An empty bypass list applies the rules to normal
+owner operations too, but an administrator can still edit repository rules.
+[Immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
+protect future published assets and associated tags; draft uploads and editable
+release text still require trusted editors. Existing 0.1.0 is not retroactively
+immutable. Neither setting establishes that every publishing credential is trusted.
+
+Earlier authenticated read-only account UI inspection identified the installed
+ChatGPT Codex Connector and one fine-grained PAT. Their detailed repository
+selection/permissions remain **NOT VERIFIED** behind GitHub's human reauthentication
+gate. Six OAuth authorizations exposed `repo` and `workflow` scopes: GitHub CLI,
+GitHub Copilot IDE Plugin, GitHub iOS, GitKraken, JetBrains IDE Integration, and
+Visual Studio Code. These are potential writers under the owner's authority,
+not a finding that they have performed a release operation. Authorized GitHub App
+credentials and any credentials held outside GitHub's visible inventory are not
+established by collaborator/deploy-key APIs. Owner review of trusted tag creators
+and draft/release editors remains a GO blocker; no credential was revoked or
+silently approved.
 
 ## Initial native host attempt and mandatory safety stop — historical
 
@@ -224,15 +253,16 @@ Review completion, load, or settings changes in inspected implementation.
 | Real TypeSafe integration | VERIFIED (bounded smoke) | Human-approved ceiling 100; four requests passed, no retry or mutation; not a reliability guarantee. |
 | Obsidian minimum 1.11.4 | VERIFIED (bounded runtime) | Actual apiVersion/title, production enable/Settings/fake command UI/Explorer event/Preview passed. |
 | Current stable 1.14.4 / clean install / representative regressions | VERIFIED | Actual host/production code, 23 local cases and real provider smoke; exhaustive physical input/layout not claimed. |
-| Windows/Linux runtime | NOT VERIFIED | Owner acceptance or actual validation; no assumed portability pass. |
-| Editor/other-plugin/external sync races | NOT VERIFIED | Validate representative races or explicitly accept remaining limits. |
-| Jevault locking versus external writes | KNOWN LIMITATION; NOT ACCEPTED | Jevault-only shared leases are not general Vault isolation; owner disposition required. |
-| Non-atomic Tag+Move | KNOWN LIMITATION; NOT ACCEPTED | Explicit partial truth/no rollback disclosed; owner disposition required. |
-| 0.1.0 → candidate upgrade and preserved settings/reference | VERIFIED with limit | Actual public assets replacement; synthetic reference only. Real 0.5.0 package/updater and credential transfer remain #114 evidence. |
-| Active protected tag ruleset | BLOCKER | None present; separate owner action/authorization and read-back required. |
-| Future Release immutability / trusted creators/editors | NOT VERIFIED; GO blocker | Owner confirms current prerequisites; historical immutable=false is not future-setting proof. |
+| Windows/Linux runtime | NOT VERIFIED; NOT ACCEPTED | Recommend owner acceptance with release notes stating macOS-only runtime evidence. Cross-platform claims require actual additional host validation. |
+| Editor/other-plugin/external sync races | NOT VERIFIED; NOT ACCEPTED | Recommend acceptance of the remaining timing limits, disclosed to users. Existing rechecks do not prove every external race safe; a discovered data-loss defect would block release. |
+| Jevault locking versus external writes | KNOWN LIMITATION; NOT ACCEPTED | Recommend acceptance: shared leases serialize Jevault mutations only. Explain that external writers are not isolated; do not promise global Vault locking. |
+| Non-atomic Tag+Move | KNOWN LIMITATION; NOT ACCEPTED | Recommend acceptance based on verified partial/Stop/Disable results. Explain that Tags can remain after failed/cancelled Move, with no rollback or automatic retry. |
+| 0.1.0 → candidate upgrade and preserved settings/reference | VERIFIED with limit; actual 0.5.0 updater NOT VERIFIED | Additional staged #114 validation needed: exact 0.5.0 package before tag; published attachments and actual Community updater afterward. Owner must explicitly accept this staged plan and remaining credential-transfer limit before GO. |
+| Active protected tag ruleset / empty bypass | VERIFIED | Owner-authorized active all-tag update/deletion restrictions, no exclusions, bypass `[]`; recheck before future tag push. |
+| Future Release immutability setting | VERIFIED | `enabled=true`; historical 0.1.0 unchanged. Verify actual future Release is Immutable in #114. |
+| Trusted tag creators / release editors | NOT VERIFIED; GO blocker | Complete App/PAT permission inspection and owner disposition of all write-capable actors/credentials. Setting approval is not credential trust approval. |
 | Private Vulnerability Reporting | VERIFIED | enabled=true API observation. |
-| Six development advisory entries / no prod advisory | KNOWN LIMITATION; NOT ACCEPTED | Track dev risk separately; no unrelated updates in this audit. |
+| Six development advisory entries / no prod advisory | KNOWN LIMITATION; NOT ACCEPTED | Recommend owner acceptance of the two disclosed development chains with controlled build/test inputs; no shipped advisory found. Do not claim runtime-wide safety or silently upgrade dependencies. |
 | Native safety stop / unintended fallback observation | Historical incident; continuation resolved | Human resumed; PID/Vault/marker guards used. Unintended read remains disclosed, no user data retained. |
 
 ## Acceptance criteria accounting
@@ -275,19 +305,29 @@ writes. Suggestions require a TypeSafe account, your SecretStorage API key, netw
 access and TypeSafe-managed credits. Preview/Review/Apply are local; analysis can
 send synthetic or user-selected note data as disclosed in PRIVACY.
 
-Desktop only. Minimum 1.11.4 was verified in the bounded macOS host checks above.
+Desktop only. Minimum 1.11.4 was verified in the bounded macOS host checks above;
+Windows/Linux runtime and all external writer/sync races were not verified.
 Do not publish this draft until release blockers are resolved and
 limitations are explicitly reviewed by the owner.
 
 ## Required human gates before #114
 
-1. Explicitly disposition remaining external-race/platform/non-atomic/development
-   advisory risks; no residual risk was silently marked ACCEPTED.
-2. Separately authorize/configure and verify tag protections and future immutability;
-   audit trusted creators/editors and bypass list. No repository-setting authority
-   is implied by this audit; the current ruleset read-back is still empty.
-3. Review independent exact-HEAD review and CI evidence, confirm readiness GO, then
-   provide fresh #114 authorization for version/tag/Release actions. Merge also needs
-   separate explicit authorization. A NO-GO audit PR being reviewed/merged is not GO.
-4. In #114, verify actual 0.5.0 metadata/package/updater behavior after authorized
-   version changes; the bounded 0.1.0-metadata host replacement cannot establish it.
+1. Complete human GitHub reauthentication for read-only App/PAT details, then
+   document the owner-approved trusted tag creators/release editors. If a required
+   permission cannot be verified, retain NOT VERIFIED and NO-GO. Revoking or changing
+   credentials requires its own authorization and may affect other repositories.
+2. Explicitly disposition all six residual items: Windows/Linux, external races,
+   non-atomic Tag+Move, Jevault-local locking, development advisories and the staged
+   actual 0.5.0 updater/credential-transfer validation. No item is ACCEPTED yet.
+3. Read back protections again and confirm exact candidate identity, CI and review
+   after this documentation update. Reuse the existing runtime/provider evidence
+   only while product code, dependencies and production assets remain identical;
+   no additional TypeSafe request is justified by a settings/documentation change.
+4. Only after those gates pass, issue GO for the exact SHA. Merging this audit PR
+   needs separate explicit approval and does not itself produce GO. #114 still
+   needs fresh explicit authorization for version/tag/Release actions.
+5. Under authorized #114 execution, verify exact 0.5.0 package installation/upgrade
+   before tag creation, then published bytes and actual Community updater behavior
+   after publication. The current 0.1.0-metadata replacement is bounded evidence,
+   not an actual 0.5.0 updater pass. Reuse #42's workflow; close #42 only with real
+   same-byte asset and independently verified attestation evidence.
