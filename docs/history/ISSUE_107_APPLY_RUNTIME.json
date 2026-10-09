@@ -1,0 +1,242 @@
+{
+  "apiVersion": "1.14.4",
+  "cases": {
+    "A": {
+      "result": {
+        "status": "completed",
+        "results": [
+          {
+            "index": 0,
+            "tag": "applied",
+            "move": "keep-current",
+            "outcome": "updated-tags"
+          }
+        ],
+        "progress": {
+          "total": 1,
+          "processed": 1,
+          "failed": 0,
+          "stale": 0
+        }
+      },
+      "tagCalls": 1,
+      "moveCalls": 0,
+      "tagRetained": true,
+      "ownStatChanged": true
+    },
+    "B": {
+      "result": {
+        "status": "completed",
+        "results": [
+          {
+            "index": 0,
+            "tag": "not-selected",
+            "move": "applied",
+            "outcome": "moved"
+          }
+        ],
+        "progress": {
+          "total": 1,
+          "processed": 1,
+          "failed": 0,
+          "stale": 0
+        }
+      },
+      "tagCalls": 0,
+      "moveCalls": 1,
+      "tagRetained": false,
+      "ownStatChanged": false
+    },
+    "C": {
+      "result": {
+        "status": "completed",
+        "results": [
+          {
+            "index": 0,
+            "tag": "applied",
+            "move": "applied",
+            "outcome": "moved-and-tags"
+          }
+        ],
+        "progress": {
+          "total": 1,
+          "processed": 1,
+          "failed": 0,
+          "stale": 0
+        }
+      },
+      "tagCalls": 1,
+      "moveCalls": 1,
+      "tagRetained": true,
+      "ownStatChanged": true
+    },
+    "D": {
+      "result": {
+        "status": "completed",
+        "results": [
+          {
+            "index": 0,
+            "tag": "applied",
+            "move": "applied",
+            "outcome": "moved-and-tags"
+          }
+        ],
+        "progress": {
+          "total": 1,
+          "processed": 1,
+          "failed": 0,
+          "stale": 0
+        }
+      },
+      "tagCalls": 1,
+      "moveCalls": 1,
+      "tagRetained": true,
+      "ownStatChanged": true
+    },
+    "E": {
+      "result": {
+        "status": "completed",
+        "results": [
+          {
+            "index": 0,
+            "tag": "not-started-stale",
+            "move": "not-started-stale",
+            "outcome": "stale",
+            "reason": "stale"
+          }
+        ],
+        "progress": {
+          "total": 1,
+          "processed": 1,
+          "failed": 0,
+          "stale": 1
+        }
+      },
+      "tagCalls": 0,
+      "moveCalls": 0,
+      "tagRetained": false,
+      "ownStatChanged": true
+    },
+    "F": {
+      "result": {
+        "status": "completed",
+        "results": [
+          {
+            "index": 0,
+            "tag": "not-started-prior-failure",
+            "move": "failed",
+            "outcome": "failed",
+            "reason": "collision"
+          }
+        ],
+        "progress": {
+          "total": 1,
+          "processed": 1,
+          "failed": 1,
+          "stale": 0
+        }
+      },
+      "tagCalls": 0,
+      "moveCalls": 0,
+      "tagRetained": false,
+      "ownStatChanged": false
+    },
+    "G": {
+      "result": {
+        "status": "completed",
+        "results": [
+          {
+            "index": 0,
+            "tag": "applied",
+            "move": "failed",
+            "outcome": "partial",
+            "reason": "move-failed"
+          }
+        ],
+        "progress": {
+          "total": 1,
+          "processed": 1,
+          "failed": 1,
+          "stale": 0
+        }
+      },
+      "tagCalls": 1,
+      "moveCalls": 1,
+      "tagRetained": true,
+      "ownStatChanged": true
+    },
+    "H": {
+      "result": {
+        "status": "cancelled",
+        "results": [
+          {
+            "index": 0,
+            "tag": "applied",
+            "move": "not-started-cancelled",
+            "outcome": "cancelled-after-partial"
+          }
+        ],
+        "progress": {
+          "total": 1,
+          "processed": 1,
+          "failed": 0,
+          "stale": 0
+        }
+      },
+      "tagCalls": 1,
+      "moveCalls": 0,
+      "tagRetained": true,
+      "ownStatChanged": true
+    },
+    "I": {
+      "conflict": {
+        "status": "failure",
+        "reason": "busy"
+      },
+      "organizer": {
+        "status": "completed",
+        "results": [
+          {
+            "index": 0,
+            "tag": "applied",
+            "move": "applied",
+            "outcome": "moved-and-tags"
+          }
+        ],
+        "progress": {
+          "total": 1,
+          "processed": 1,
+          "failed": 0,
+          "stale": 0
+        }
+      }
+    },
+    "J": {
+      "independent": {
+        "status": "moved",
+        "destination": "Dest"
+      }
+    }
+  },
+  "explicitBodyReads": 0,
+  "secretLookups": 0,
+  "typesafeRequests": 0,
+  "reanalysis": 0,
+  "recollection": 0,
+  "rollback": 0,
+  "verification": {
+    "date": "2026-10-09 JST",
+    "baseline": "56deac3",
+    "invocation": "Explicit isolated verification command through native Obsidian UI",
+    "syntheticOnly": true,
+    "casesAtoJ": "PASS",
+    "limits": "Obsidian 1.14.4 on macOS; other runtimes/versions, external editor/OS/sync transaction isolation not verified",
+    "sourceSha256": {
+      "src/note-move-service.ts": "83aa8f6fdc4b753e72bea1aab9e335b6e6f9f0227e98986b0802ceedf0a5350d",
+      "src/organizer/organization-apply-confirmation.ts": "6f24d659642ce1074e38b697360a0d257d958435186184d684c7da2a866520a1",
+      "src/organizer/organization-apply-result.ts": "656bb7d13a4acbc22bf9c8d59e0e61d248d5fbe4b14d65c040c7f90e74427022",
+      "src/organizer/organization-apply-service.ts": "6776a04f83209043c85b2042d99b59a209edd7abd2ffc8d8f4e81ac5c78d15b1",
+      "tests/helpers/organization-apply-runtime-plugin.ts": "4e7830f47ebeac7e39ac878581c4157b511ae319b60d4a90dacfc1a02f75eade"
+    }
+  }
+}
