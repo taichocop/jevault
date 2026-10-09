@@ -60,7 +60,7 @@ Tag and Move, lease retention/release, close/Esc/onClose/unload through settleme
 render failure and late DOM suppression. These are fake-runtime unit tests, not
 proof of real Obsidian UI execution.
 
-## Dedicated synthetic runtime setup and current blocker
+## Dedicated synthetic runtime setup and initial safety stop
 
 `node scripts/prepare-organization-apply-ui-runtime.mjs` creates a fresh disposable
 Vault and bundles only `tests/helpers/organization-apply-ui-runtime-plugin.ts`.
@@ -87,14 +87,14 @@ UI text. Synthetic gates are released on failure. Intended evidence destination:
 `evidence-111.json` inside that disposable Vault. The harness is verification
 support, not a runtime pass by itself.
 
-**STOPPED / NOT VERIFIED:** Initial implementation-agent CUA attempts
+**Historical STOPPED / NOT VERIFIED state:** Initial implementation-agent CUA attempts
 `cua.getApp("md.obsidian")`, `cua.getApp("Obsidian")` and
 `cua.getApp("Finder")` returned `cgWindowNotFound`. The coordinator later connected
 native CUA. During its Vault-picker operation, **Downloads unexpectedly opened
 instead of Synthetic111**. According to the coordinator, no Note actions or Apply
 were performed and the window was immediately closed. Native verification was
-stopped under the Issue safety condition; no further native UI attempts are
-permitted in this task.
+stopped under the Issue safety condition. Native attempts remained prohibited
+until the human explicitly resumed isolated synthetic validation, recorded below.
 
 The coordinator reported that `.obsidian` exists in that unexpectedly opened
 location, but OS permission prevented inspecting its contents or creation. **We
@@ -103,19 +103,19 @@ pre-existing. No inspection, cleanup, Note mutation or further navigation of tha
 location was attempted by the implementation agent. This is a bounded safety
 incident with an unresolved metadata observation, not successful runtime evidence.
 
-The synthetic runtime suite and complete graphical walkthrough remain **NOT
-VERIFIED**; no passing runtime evidence JSON or screenshots are claimed. Static
+At that stop, the synthetic runtime suite and complete graphical walkthrough were
+**NOT VERIFIED**; no passing runtime evidence JSON or screenshots were claimed. Static
 coordinator review also found that the SameFolder driver had selected the current
 folder through the alternate-folder dropdown, which deliberately excludes it.
 The harness now injects that current existing folder as its fake suggestion and
 selects the corresponding radio. Production selection rules are unchanged; the
-fixed harness has not been executed in Obsidian.
+fixed harness had not yet been executed in Obsidian.
 
 Also NOT VERIFIED: real provider analysis (deliberately excluded), actual Plugin
 disable event dispatch (the suite targets the same entry.dispose boundary),
 mobile/other Obsidian versions, editor/other-plugin/OS/sync races or general
 transaction isolation. GitHub CI and current-HEAD independent Codex review are reserved for the
-coordinator; no additional agents were launched. Their status is not inferred from local checks. No merge recommendation is made while runtime/review remain open.
+coordinator; no additional agents were launched. Their status is not inferred from local checks. No merge recommendation is made before coordinator CI/current-HEAD review.
 
 ## Scope review
 
@@ -154,7 +154,116 @@ and working/staged whitespace checks. Regressions assert released fields through
 retained stale Modal/DOM references, visible terminal-summary preservation, cancel,
 held Tag/Move unload with authority/lease validity until settlement, stale progress
 rejection and idempotent later Close. Full repair diff and secret/protected-scope
-checks were reviewed before commit. No further native UI attempts were made;
-runtime remains **STOPPED / NOT VERIFIED**, and the Downloads incident and unknown
-metadata state above remain unchanged. PR #112 stays draft; coordinator owns the
-new-HEAD CI and Codex review.
+checks were reviewed before commit. At repair commit
+`0ae1e0c612c69f5c013bd77562523420bfc42570`, no further native UI attempts had been
+made; runtime was still **STOPPED / NOT VERIFIED**. The subsequent explicit resume
+does not resolve the Downloads incident or its unknown metadata state. PR #112
+stays draft; coordinator owns new-HEAD CI and Codex review.
+
+## Explicitly resumed native synthetic validation — Retry2 PASS
+
+The human explicitly resumed native verification and granted Orca MAIN
+Accessibility. The coordinator operated the official Orca computer CLI; the
+implementation agent did not operate native UI. Window visibility/focus was
+resolved using the native Window menu and titlebar. All resumed Note/Apply work
+was confined to the separately prepared disposable Vault:
+`/var/folders/kw/ndzcbg492qj_06ct5kw_y1w00000gn/T/Jevault-111-Synthetic-RXo2fL`.
+The earlier Downloads incident and uninspected `.obsidian` metadata remain an
+unresolved historical observation, not a claim of no metadata changes.
+
+Actual Obsidian **1.14.4** initially passed the first eight cases, then failed at
+CloseTag. Retry1 on fresh `Cases/Retry1` / `Dest/Retry1` repeated those eight passes
+and located the failure at `abort-action`: one held Tag call, no Move, the owner
+still active, and no abort observed before cleanup. That stage included locating
+the native X before clicking it; these facts alone did not establish a production
+abort defect. Both failed evidence files were preserved without resetting their
+already mutated fixtures.
+
+The coordinator inspected the installed official 1.14.4 Modal constructor:
+its native X is `.modal-header-button.mod-raised.clickable-icon`, with an X SVG
+and a `click` handler bound to Modal.close. The harness had looked for the absent
+legacy `.modal-close-button`. This was a **test-harness selector bug**; no
+production fix was made. Retry2's pre-confirm X action requires exactly one
+native dismiss candidate outside the content in the same modal container and
+dispatches its document's click event. CloseTag/CloseMove instead exercise the
+visible production **Close** button; neither action falls back to direct Modal.close.
+Finite selector diagnostics recorded zero legacy nodes and one native header X.
+Existing confirmation, mutation-count, ownership, settlement and lease assertions
+were retained; the abort-at-action assertion was made explicit.
+
+The separate harness now reports only finite startup/case/stage/count/boolean
+diagnostics, never raw exceptions, bodies or credentials. On reopen, native
+startup reported `marker-unavailable` before the Vault index was ready, and
+registered no commands. The coordinator toggled only the verification plugin
+OFF then ON after indexing; startup reported `ready`, then the coordinator
+selected **Run isolated #111 Retry2 diagnostic UI verification** and pressed
+Return. The name/marker guard was not weakened, and no automatic delayed startup
+or Apply was added. Startup tests also verify the CJS default-export footer,
+finite failure stages and fail-closed marker behavior.
+
+The installed separate bundle SHA256 was
+`fa30fb13d097c28aebe453109aa6f62a603133b0c7e21eb08a6e369d8f847cb2`.
+The coordinator's actual native run passed **all 15 cases** using fresh,
+untouched `Cases/Retry2` Notes and `Dest/Retry2`: TagOnly, MoveOnly, Both,
+SameFolder, Keep, Partial, StopTag, StopMove, CloseTag, CloseMove, UnloadTag,
+UnloadMove, Cancel, Esc and X. Production code was at
+`0ae1e0c612c69f5c013bd77562523420bfc42570`; only the separate diagnostic harness
+changed. The implementation agent read the complete resulting evidence, checked
+15 cases with no `failed` flag, and preserved an identical
+`evidence-111-retry2-pass.json` beside `evidence-111.json`. No installed bundle or
+fixtures were changed while the Vault was open after this run.
+
+Evidence confirms one Apply call per confirmed case, exact owner identity through
+settlement, held owner/lease during blocked Tag/Move, and lease release afterward.
+Partial records applied Tags plus failed Moves; StopTag/CloseTag/UnloadTag record
+cancelled-after-partial without starting Move or another Note. StopMove/CloseMove/
+UnloadMove record the already-started Move completing, cancelled operation status
+and no next Note. Visible Stop summaries preserve unattempted count; Close/unload
+detach the UI. Cancel/Esc/X record zero mutations, owner invalidation and stale
+Confirm rejection. Unload cases invoke the actual entry.dispose boundary, **not
+native Plugin disable dispatch**.
+
+Preserved local evidence (synthetic paths/results only; no bodies or secrets):
+
+| File | SHA256 |
+| --- | --- |
+| RXo2fL/evidence-111-initial-failed.json | `bb4bc366c61cce658d3c000d84bc90569a4bd2c2b76fdc44e31633c46623c48b` |
+| RXo2fL/evidence-111-retry1-failed.json | `b795dd63820d20acb2d31199ad0472cf1ef3c1e8a78fd583b6219e852f48ed52` |
+| RXo2fL/evidence-111-retry2-pass.json | `212d24c318cd313bd048d2937434f3bf2355d20e8a4d6de85bda7380de9fd4b7` |
+| /private/tmp/jevault-111-native-manual-x-evidence.json | `f7dab1132ed8b5fa52e8d865f9b1bfcc91b25c79546d7c2a6cd0a82aa23ad799` |
+
+The coordinator also performed a manual native Explorer Inbox right-click ->
+Preview -> fake Analyze -> Review Keep current/no Tags -> Finish -> Apply
+navigation walkthrough. Final confirmation showed the exact
+`Inbox/Interactive.md`, reviewed 1/unavailable 0, planned moves 0/selected Tags 0
+and the non-atomic warning. Native visible X dismissal removed the modal without
+clicking final Confirm. The fixture SHA256 before and after was identical:
+`1b1e9a294d9fb62547746fdbbf49601cf301b3e11ef18821e38e45e179526db4`.
+This manual observation has no mutation-call counter; the separate suite verifies
+that boundary and stale-handler lifetime.
+
+**NOT VERIFIED:** actual Plugin disable dispatch (entry.dispose was tested), real
+provider analysis (deliberately excluded), mobile/other Obsidian versions, other
+plugins, editor/OS/sync races and general transaction isolation. No real provider,
+Secret/key, explicit body read, telemetry, rollback or new external destination
+was used by the harness. CI and current-new-HEAD Codex review remain the
+coordinator's responsibility; native PASS does not stand in for those checks.
+
+Final local verification after the harness diagnosis used the existing direct
+Node **22.13.0** binary, without npm package provisioning:
+
+```sh
+env PATH=/private/tmp/jevault-111-npm-cache/_npx/1bd81ab945294a66/node_modules/node/bin:$PATH npm run verify
+```
+
+**47 files / 1,382 tests passed**, including the lifecycle/race/cancel and
+#101/#103/#105/#107/Manual regressions plus ten finite harness-startup checks.
+Lint, typecheck, production build, SDK license notice and working/staged whitespace
+checks passed. Full Issue diff and current uncommitted harness/startup-test/history
+diff were reviewed; no production change followed the native diagnosis. Protected
+foundation, Manual service, dependency/lockfile, manifest/version and workflow
+diffs remain empty. Secret-pattern and direct mutation/body-read/network checks
+found no added production path; the production bundle contains no verification
+harness. The existing startup tests assert command IDs, so the Retry2 command name
+required no test expectation change. These final evidence updates are prepared
+for coordinator review before commit/push; PR #112 remains draft.
