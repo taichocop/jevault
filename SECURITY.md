@@ -61,7 +61,7 @@ Jevault supports a manual move only after the user selects a displayed candidate
 - Preserve the filename and extension. Refuse an existing target, including case/Unicode-equivalent names; never overwrite, delete, or automatically rename.
 - Block repeated confirmations and concurrent moves involving the same source or target.
 - Cancel before the move API starts on Close or plugin unload. Once the API starts, handle its actual result without custom rollback.
-- Use `FileManager.renameFile`; Obsidian controls standard link updates according to user preferences. Do not implement custom whole-note, note-body, or link rewriting. Only the approved Manual Tag Apply path below may add selected Tags through Obsidian's frontmatter API; it does not permit Tag removal/rename or arbitrary frontmatter mutation.
+- Use `FileManager.renameFile`; Obsidian controls standard link updates according to user preferences. Do not implement custom whole-note, note-body, or link rewriting. Only explicitly confirmed Manual Tag Apply and Folder Organizer Apply may add selected existing Tags through Obsidian's frontmatter API; neither permits Tag removal/rename or arbitrary frontmatter mutation.
 - Do not create folders, delete notes, or add automatic/background moves.
 
 ### Manual Tag Apply

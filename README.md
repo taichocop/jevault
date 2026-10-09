@@ -48,7 +48,7 @@ Jevault always excludes the Vault's current Obsidian configuration directory and
 
 If a retryable error is shown, selecting **Retry** explicitly starts another classification request. A move uses the exact classified note, even if you switch active notes. A missing, renamed, moved, or replaced source, a missing destination, or an existing target blocks the move. Filename and extension are preserved; Jevault never overwrites or adds a suffix. A note already in the selected folder is reported without moving it.
 
-Manual move is local and sends no additional TypeSafe request. Once the Obsidian move API starts, closing the modal cannot abort it; Jevault reports its result and performs no automatic rollback. Obsidian may update links according to your settings. Jevault does not rewrite note content or frontmatter itself.
+Manual move is local and sends no additional TypeSafe request. Once the Obsidian move API starts, closing the modal cannot abort it; Jevault reports its result and performs no automatic rollback. Obsidian may update links according to your settings. Manual Move performs no custom note-body or frontmatter rewrite; explicitly confirmed Tag operations below can add selected tags through Obsidian's frontmatter API.
 
 ### Tag Suggest and Manual Tag Apply
 
