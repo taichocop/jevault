@@ -38,6 +38,12 @@ it("discovers protection by semantics across pages, without a fixed ID", () => {
   ]);
 });
 
+it("accepts documented summaries without target but requires tag in details", () => {
+  expect(requireProtectedReleaseTags(fakeApi([[{ id: 17 }]], { 17: ruleset() }))).toEqual([17]);
+  const api = fakeApi([[{ id: 17 }]], { 17: { ...ruleset(), target: "branch" } });
+  expect(() => requireProtectedReleaseTags(api)).toThrow("Malformed");
+});
+
 it.each(["disabled", "evaluate"])("rejects %s protection", (enforcement) => {
   const api = fakeApi([[{ id: 17, target: "tag" }]], { 17: { ...ruleset(), enforcement } });
   expect(() => requireProtectedReleaseTags(api)).toThrow("Active all-tag");
@@ -69,7 +75,6 @@ it.each([
   null, {}, [], [null], [[null]], [[{}]], [[{ id: "17", target: "tag" }]],
   [[{ id: 0, target: "tag" }]], [[{ id: -1, target: "tag" }]],
   [[{ id: 1.5, target: "tag" }]], [[{ id: Number.MAX_SAFE_INTEGER + 1, target: "tag" }]],
-  [[{ id: 17, target: "branch" }]],
   [[{ id: 17, target: "tag" }], [{ id: 17, target: "tag" }]],
 ])("fails closed on malformed page structure: %j", (pages) => {
   expect(() => parseRulesetPages(JSON.stringify(pages))).toThrow("Malformed");

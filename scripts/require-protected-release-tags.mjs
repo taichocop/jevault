@@ -26,7 +26,8 @@ export function parseRulesetPages(text) {
   const ids = [];
   for (const page of pages) {
     for (const entry of page) {
-      if (!isObject(entry) || !isId(entry.id) || entry.target !== "tag" || ids.includes(entry.id)) {
+      // 一覧の公式 schema は target を必須としない。保護対象は取得した詳細で検証する。
+      if (!isObject(entry) || !isId(entry.id) || ids.includes(entry.id)) {
         throw malformed();
       }
       ids.push(entry.id);
