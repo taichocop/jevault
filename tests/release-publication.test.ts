@@ -130,7 +130,7 @@ it("passes exact annotation bytes to the shared CLI and removes the temporary no
   await expect(readFile(notesFile)).rejects.toThrow();
 });
 
-it("rejects a changed tag or asset during API preflight and never retries a creation error", async () => {
+it("rejects a changed tag or asset during API preflight and invokes the outer CLI once on error (internal retries are separate)", async () => {
   for (const mutation of ["tag", "asset", "create-error"]) {
     const root = await fixture(); const run = runner(); const original = run.getMockImplementation()!;
     let reads = 0;
