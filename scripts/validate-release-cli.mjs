@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import console from "node:console";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { createSecureContext, TLSSocket } from "node:tls";
 import { fileURLToPath } from "node:url";
-import { buildReleaseArguments, publishRelease, runCommand } from "./publish-release.mjs";
-import { annotation, commit, fakeGit, mockResponse, releaseFixture, tag } from "../tests/helpers/release-publication-fixture.mjs";
+import { buildReleaseArguments, publishRelease, runCommand, parseApiResponse } from "./publish-release.mjs";
+import { annotation, commit, fakeGit, mockResponse, releaseFixture, rawTag, tag } from "../tests/helpers/release-publication-fixture.mjs";
+import { lifecycleCases, releaseLifecycle } from "../tests/helpers/release-cli-lifecycle.mjs";
 
 export async function validateReleaseCli(binary = "gh") {
   const root = await releaseFixture();
@@ -17,6 +18,9 @@ export async function validateReleaseCli(binary = "gh") {
   const sockets = new Set();
   const requests = [];
   let scenario = "allowed";
+  let lifecycle;
+  let mockFailure;
+  const rejectedConnections = [];
   const mock = http.createServer(async (request, response) => {
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
@@ -28,15 +32,27 @@ export async function validateReleaseCli(binary = "gh") {
     if (scenario === "network") { response.destroy(); return; }
     if (scenario === "malformed") { response.writeHead(200); response.end("invalid JSON"); return; }
     response.setHeader("Content-Type", "application/json");
-    if (request.headers.host !== "api.github.com") {
+    if (!["api.github.com", "uploads.github.com"].includes(request.headers.host)) {
       entry.blocked = true; response.writeHead(403); response.end('{"message":"Mock host rejected"}'); return;
     }
     // ghの--verify-tagはPOSTで読取GraphQL queryを送る。mutationと未知のPOSTは全拒否する。
-    if (request.method === "POST" && request.url === "/graphql"
+    if (request.headers.host === "api.github.com" && request.method === "POST" && request.url === "/graphql"
       && /^query RepositoryFindRef\b/.test(body?.query ?? "") && !/\bmutation\b/.test(body.query)
       && body.variables?.owner === "taichocop" && body.variables?.name === "jevault"
       && body.variables?.tagName === `refs/tags/${tag}`) {
       response.writeHead(200); response.end(JSON.stringify({ data: { repository: { ref: { id: "synthetic-ref" } } } })); return;
+    }
+    if (lifecycle) {
+      try {
+        const result = await lifecycle.handle({ method: request.method, url: request.url,
+          host: request.headers.host, body, bytes });
+        if (result.drop) { response.destroy(); return; }
+        response.writeHead(result.status); response.end(request.method === "HEAD" ? undefined : JSON.stringify(result.body));
+      } catch (error) {
+        mockFailure = error;
+        response.writeHead(500); response.end('{"message":"Synthetic fixture assertion failed"}');
+      }
+      return;
     }
     if (!["GET", "HEAD"].includes(request.method)) {
       // 転送・Release作成・asset upload・cleanupは実装しない。最初の書込境界で止める。
@@ -52,11 +68,13 @@ export async function validateReleaseCli(binary = "gh") {
     const key = path.join(config, "synthetic-key.pem");
     const cert = path.join(config, "synthetic-cert.pem");
     const generated = await runCommand("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes",
-      "-subj", "/CN=api.github.com", "-addext", "subjectAltName=DNS:api.github.com", "-days", "1", "-keyout", key, "-out", cert]);
+      "-subj", "/CN=api.github.com", "-addext", "subjectAltName=DNS:api.github.com,DNS:uploads.github.com", "-days", "1", "-keyout", key, "-out", cert]);
     assert.equal(generated.status, 0, "Synthetic TLS fixture generation failed");
     const context = createSecureContext({ key: await readFile(key), cert: await readFile(cert) });
     proxy.on("connect", (request, socket, head) => {
-      if (request.url !== "api.github.com:443" || head.length !== 0) { socket.destroy(); return; }
+      if (!["api.github.com:443", "uploads.github.com:443"].includes(request.url) || head.length !== 0) {
+        rejectedConnections.push(request.url); socket.destroy(); return;
+      }
       socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
       const secure = new TLSSocket(socket, { isServer: true, secureContext: context });
       secure.on("error", () => secure.destroy());
@@ -67,7 +85,8 @@ export async function validateReleaseCli(binary = "gh") {
     const proxyUrl = `http://127.0.0.1:${proxy.address().port}`;
     // 親の認証環境は継承しない。全HTTPは転送能力のないloopback proxyへ固定する。
     const env = { PATH: process.env.PATH, GH_TOKEN: "synthetic-mock-token", GH_CONFIG_DIR: config,
-      GH_HOST: "github.com", GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", GH_NO_EXTENSION_UPDATE_NOTIFIER: "1",
+      GH_HOST: "github.com", GH_TELEMETRY: "disabled", DO_NOT_TRACK: "1", GH_PROMPT_DISABLED: "1",
+      GH_NO_UPDATE_NOTIFIER: "1", GH_NO_EXTENSION_UPDATE_NOTIFIER: "1",
       HTTPS_PROXY: proxyUrl, HTTP_PROXY: proxyUrl, ALL_PROXY: proxyUrl, NO_PROXY: "", SSL_CERT_FILE: cert };
     const cli = (args) => runCommand(binary, args, { cwd: root, env });
     const version = await cli(["--version"]);
@@ -101,8 +120,66 @@ export async function validateReleaseCli(binary = "gh") {
       assert.equal(requests.filter((entry) => entry.blocked).length, 0, `${scenario} must fail before any write request`);
       assert.ok(requests.length > 0, "Negative scenario must use the real CLI API client");
     }
-    return { cli: "2.102.0", negativeScenarios: 12, writeRequestsBlocked: 1,
-      annotationExact: true, releaseDraftAssetTagAttestationCreated: 0 };
+    scenario = "allowed";
+    const invalidInputs = [];
+    for (const invalid of ["invalid-tag", "invalid-notes", "invalid-digest"]) {
+      requests.length = 0;
+      const css = path.join(root, "release-assets", "styles.css");
+      const original = await readFile(css);
+      if (invalid === "invalid-digest") await writeFile(css, "changed synthetic bytes");
+      const invalidRun = (command, args) => command === "git"
+        ? Promise.resolve(invalid === "invalid-notes" && args[0] === "cat-file"
+          ? { status: 0, stdout: rawTag(Buffer.from(" \n")) } : fakeGit(args)) : cli(args);
+      try {
+        await assert.rejects(publishRelease({ root, tag: invalid === "invalid-tag" ? "v1.2.3" : tag,
+          commit, repository: "taichocop/jevault" }, invalidRun));
+        assert.equal(requests.length, 0, "Invalid local inputs must fail before any HTTP request");
+        invalidInputs.push(invalid);
+      } finally { await writeFile(css, original); }
+    }
+    const assets = Object.fromEntries(await Promise.all(["main.js", "manifest.json", "styles.css"].map(async (name) =>
+      [name, await readFile(path.join(root, "release-assets", name))])));
+    const results = [];
+    // helperのCLI呼出しは1回でも、CLI内部のupload retryとcleanupは実際に観測する。
+    for (const expected of lifecycleCases) {
+      requests.length = 0;
+      rejectedConnections.length = 0;
+      mockFailure = undefined;
+      lifecycle = releaseLifecycle(expected.name, assets);
+      let succeeded = false;
+      try { await publishRelease({ root, tag, commit, repository: "taichocop/jevault" }, run); succeeded = true; }
+      catch (error) { assert.match(error.message, /Release creation failed/); }
+      if (mockFailure) throw mockFailure;
+      assert.equal(succeeded, expected.ok === true, expected.name);
+      const observed = lifecycle.snapshot();
+      const count = (method, host) => observed.requests.filter((entry) => entry.method === method && entry.host === host).length;
+      const writes = { create: count("POST", "api.github.com"), upload: count("POST", "uploads.github.com"),
+        patch: count("PATCH", "api.github.com"), delete: count("DELETE", "api.github.com") };
+      assert.deepEqual(writes, { create: 1, upload: expected.uploads, patch: expected.patch, delete: expected.remove }, expected.name);
+      assert.equal(observed.state, expected.state, expected.name);
+      assert.equal(observed.assets.length, expected.assetCount, expected.name);
+      if (expected.beforeDelete !== undefined) assert.equal(observed.assetsBeforeDelete.length, expected.beforeDelete, expected.name);
+      if (expected.name.includes("exhausted")) assert.equal(observed.attempts["styles.css"], 4, "Initial upload plus three CLI retries");
+      if (expected.uploads === 4) assert.equal(observed.attempts["styles.css"], 2, "Exactly one CLI upload retry");
+      assert.equal(observed.published, expected.patch === 1 && expected.name !== "publish-rejected"
+        && expected.name !== "publish-response-lost-before-commit", expected.name);
+      assert.equal(rejectedConnections.length > 0, expected.name === "unexpected-upload-host", `${expected.name}: ${JSON.stringify(rejectedConnections)}`);
+      let readBack;
+      if (expected.name.startsWith("publish-response-lost") || expected.name === "publish-result-unknown"
+        || expected.name === "create-response-lost") {
+        const response = await cli(["api", "--include", `repos/taichocop/jevault/releases/tags/${tag}`]);
+        try { readBack = parseApiResponse(response).status === 200 ? "exists" : "absent"; }
+        catch { readBack = "unknown"; }
+        assert.equal(readBack, expected.name === "publish-result-unknown" ? "unknown"
+          : ["draft", "published"].includes(expected.state) ? "exists" : "absent");
+      }
+      if (mockFailure) throw mockFailure;
+      results.push({ scenario: expected.name, succeeded, writes, uploadAttempts: observed.attempts,
+        finalMockState: observed.state, assets: observed.assets, assetsBeforeDelete: observed.assetsBeforeDelete,
+        publishWasApplied: observed.published, readBack, unexpectedHostBlocked: rejectedConnections.length > 0 });
+    }
+    return { cli: "2.102.0", negativeScenarios: 12, invalidInputs, writeRequestsBlocked: 1,
+      annotationExact: true, lifecycle: results, realGitHubWrites: 0 };
   } finally {
     for (const socket of sockets) socket.destroy();
     if (proxy.listening) await new Promise((resolve) => proxy.close(resolve));
