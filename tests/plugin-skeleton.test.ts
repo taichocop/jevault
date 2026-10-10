@@ -18,7 +18,7 @@ describe("plugin skeleton", () => {
     expect(manifest).toMatchObject({
       id: "jevault",
       name: "Jevault",
-      version: "0.1.0",
+      version: "0.5.0",
       isDesktopOnly: true,
       minAppVersion: "1.11.4",
     });
