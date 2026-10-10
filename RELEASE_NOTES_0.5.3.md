@@ -1,6 +1,6 @@
 # Jevault 0.5.3
 
-This version follows published Jevault 0.1.0. Versions 0.5.0, 0.5.1 and 0.5.2 have Git tags only; none has a published GitHub Release. Version 0.5.3 is prepared for the normal tag-push workflow with the simplified GitHub Actions authentication checks. The workflow builds, attests and publishes the same three assets in one run. Actual publication and provenance verification remain pending.
+This version follows published Jevault 0.1.0. Versions 0.5.0, 0.5.1 and 0.5.2 have Git tags only; none has a published GitHub Release. Version 0.5.3 uses the normal tag-push workflow with simplified GitHub Actions authentication checks. The workflow is designed to build, attest, and publish the same three assets in one run. Independent verification of the distributed assets and their provenance is tracked separately.
 
 ## Folder Organizer and Folder/Tag suggestions
 
@@ -26,8 +26,8 @@ Preview, Review and Apply are local. Apply sends no additional provider request 
 
 ## Verification coverage
 
-macOS Obsidian 1.14.4 verification covers the exact 0.5.3 preparation package: clean installation, enable, Settings, safe missing-key Classify/Tag errors and Organizer startup/Preview. Replacing published 0.1.0 assets preserves synthetic settings, an absent synthetic Secret reference and Markdown notes.
+macOS Obsidian 1.14.4 verification covers the tested 0.5.3 package: clean installation, enable, Settings, safe missing-key Classify/Tag errors and Organizer startup/Preview. The asset-replacement upgrade test from published 0.1.0 preserved synthetic settings, an absent synthetic Secret reference and Markdown notes.
 
 The 23 representative 0.5.2 cases and minimum 1.11.4 compatibility evidence are reused with their original limits because product code, dependencies, build inputs and executable bundle bytes are identical. These are bounded host/API checks with synthetic provider interfaces, not exhaustive native UI or new real-provider verification.
 
-Windows/Linux, migration of real stored credentials, external-write races and Community Plugin updater behavior remain unverified. Real Release creation, distributed asset hashes, Artifact Attestation verification and Immutable status remain post-publication checks. Isolated GitHub CLI 2.102.0 mock success does not guarantee real publication.
+This verification does not cover Windows/Linux, migration of real stored credentials, external-write races or Community Plugin updater behavior. After publication, the downloaded assets, their SHA-256 digests, Artifact Attestations, signer/source identity, and GitHub Release Immutable status must be verified independently. A successful publishing workflow alone does not replace these checks. Isolated GitHub CLI 2.102.0 mock success does not guarantee real publication.
