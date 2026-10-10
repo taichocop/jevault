@@ -1,0 +1,19 @@
+{
+  "name": "Jevault CLI development",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "containerUser": "node",
+  "remoteUser": "node",
+  "updateRemoteUserUID": false,
+  "userEnvProbe": "none",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/jevault,type=bind",
+  "workspaceFolder": "/workspaces/jevault",
+  "mounts": [
+    "source=jevault-${devcontainerId}-node-modules,target=/workspaces/jevault/node_modules,type=volume",
+    "source=jevault-${devcontainerId}-codex,target=/home/node/.codex,type=volume"
+  ],
+  "postCreateCommand": "npm ci",
+  "shutdownAction": "none"
+}
