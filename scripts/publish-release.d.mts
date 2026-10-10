@@ -1,0 +1,12 @@
+export type CommandResult = { status: number; stdout: Buffer; stderr?: Buffer };
+export type CommandRunner = (command: string, args: string[], options?: { cwd?: string; env?: NodeJS.ProcessEnv }) => Promise<CommandResult>;
+export const repository: string;
+export const assetNames: string[];
+export function runCommand(command: string, args: string[], options?: { cwd?: string; env?: NodeJS.ProcessEnv }): Promise<CommandResult>;
+export function extractAnnotation(raw: Buffer, tag: string, commit: string): Buffer;
+export function buildReleaseArguments(tag: string, notesFile: string): string[];
+export function parseApiResponse(result: CommandResult): { status: number; body: unknown };
+export function requireNoRelease(run: CommandRunner, tag: string): Promise<void>;
+export function validateStagedAssets(root: string, tag: string): Promise<string>;
+export function validateTag(run: CommandRunner, tag: string, commit: string): Promise<{ object: string; annotation: Buffer }>;
+export function publishRelease(input: { root: string; tag: string; commit: string; repository: string }, run?: CommandRunner): Promise<{ tag: string; object: string; annotationSha256: string }>;

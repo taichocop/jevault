@@ -37,6 +37,16 @@ jobs:
       - run: node scripts/prepare-release.mjs
       - run: sha256sum --check release-assets.sha256
       - run: cat release-assets.sha256
+      - name: Validate publication with GitHub CLI 2.102.0 (mock only)
+        run: |
+          cli_root="$RUNNER_TEMP/jevault-cli-2.102.0"
+          mkdir "$cli_root"
+          curl --fail --location --silent --show-error \
+            https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_linux_amd64.tar.gz \
+            --output "$cli_root/gh.tar.gz"
+          echo 'bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386  gh.tar.gz' | (cd "$cli_root" && sha256sum --check)
+          tar -xzf "$cli_root/gh.tar.gz" -C "$cli_root"
+          node scripts/validate-release-cli.mjs "$cli_root/gh_2.102.0_linux_amd64/bin/gh"
 
   release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
@@ -98,22 +108,4 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           sha256sum --check release-assets.sha256
-          if gh release view "$RELEASE_TAG" --repo taichocop/jevault >/dev/null 2>&1; then
-            echo 'Release already exists; refusing to modify it.' >&2
-            exit 1
-          fi
-          # 実行開始後のタグ付け替えで別コミットの成果物を公開しない。
-          remote_refs="$(git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")"
-          remote_commit="$(printf '%s\n' "$remote_refs" | awk -v tag="$RELEASE_TAG" '$2 == "refs/tags/" tag "^{}" { print $1 }')"
-          if [ -z "$remote_commit" ]; then
-            remote_commit="$(printf '%s\n' "$remote_refs" | awk -v tag="$RELEASE_TAG" '$2 == "refs/tags/" tag { print $1 }')"
-          fi
-          test "$remote_commit" = "$GITHUB_SHA"
-          gh release create "$RELEASE_TAG" \
-            release-assets/main.js \
-            release-assets/manifest.json \
-            release-assets/styles.css \
-            --repo taichocop/jevault \
-            --verify-tag \
-            --title "Jevault $RELEASE_TAG" \
-            --notes-from-tag
+          node scripts/publish-release.mjs "$RELEASE_TAG"
