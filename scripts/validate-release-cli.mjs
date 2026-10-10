@@ -8,8 +8,8 @@ import path from "node:path";
 import process from "node:process";
 import { createSecureContext, TLSSocket } from "node:tls";
 import { fileURLToPath } from "node:url";
-import { buildReleaseArguments, publishRelease, runCommand, parseApiResponse } from "./publish-release.mjs";
-import { annotation, commit, fakeGit, mockResponse, releaseFixture, rawTag, tag } from "../tests/helpers/release-publication-fixture.mjs";
+import { buildReleaseArguments, publishRelease, runCommand, parseApiResponse, publicationEnvironment } from "./publish-release.mjs";
+import { authenticationFailures, annotation, commit, fakeGit, mockResponse, releaseFixture, rawTag, tag } from "../tests/helpers/release-publication-fixture.mjs";
 import { lifecycleCases, releaseLifecycle } from "../tests/helpers/release-cli-lifecycle.mjs";
 
 export async function validateReleaseCli(binary = "gh") {
@@ -18,6 +18,9 @@ export async function validateReleaseCli(binary = "gh") {
   const sockets = new Set();
   const requests = [];
   let scenario = "allowed";
+  const authenticationShapes = [];
+  const negativeScenarios = ["draft", "release", "401", "403", "500", "repo", "visibility", "tag", "commit",
+    "annotation", "malformed", "network", ...authenticationFailures, "metadata-network", "installation-network", "release-tag-network", "release-list-network"];
   let lifecycle;
   let mockFailure;
   const rejectedConnections = [];
@@ -29,6 +32,12 @@ export async function validateReleaseCli(binary = "gh") {
     try { body = bytes.length ? JSON.parse(bytes.toString("utf8")) : undefined; } catch { body = undefined; }
     const entry = { method: request.method, url: request.url, body, blocked: false };
     requests.push(entry);
+    if ((scenario === "metadata-network" && request.url === "/repos/taichocop/jevault")
+      || (scenario === "release-tag-network" && request.url === `/repos/taichocop/jevault/releases/tags/${tag}`)
+      || (scenario === "installation-network" && request.url.startsWith("/installation/repositories?"))
+      || (scenario === "release-list-network" && request.url.startsWith("/repos/taichocop/jevault/releases?"))) {
+      response.destroy(); return;
+    }
     if (scenario === "network") { response.destroy(); return; }
     if (scenario === "malformed") { response.writeHead(200); response.end("invalid JSON"); return; }
     response.setHeader("Content-Type", "application/json");
@@ -84,9 +93,12 @@ export async function validateReleaseCli(binary = "gh") {
     await new Promise((resolve, reject) => { proxy.once("error", reject); proxy.listen(0, "127.0.0.1", resolve); });
     const proxyUrl = `http://127.0.0.1:${proxy.address().port}`;
     // 親の認証環境は継承しない。全HTTPは転送能力のないloopback proxyへ固定する。
-    const env = { PATH: process.env.PATH, GH_TOKEN: "synthetic-mock-token", GH_CONFIG_DIR: config,
-      GH_HOST: "github.com", GH_TELEMETRY: "disabled", DO_NOT_TRACK: "1", GH_PROMPT_DISABLED: "1",
-      GH_NO_UPDATE_NOTIFIER: "1", GH_NO_EXTENSION_UPDATE_NOTIFIER: "1",
+    const env = { ...publicationEnvironment({ PATH: process.env.PATH, GH_TOKEN: "synthetic-mock-token",
+      GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_REPOSITORY: "taichocop/jevault",
+      GITHUB_REPOSITORY_ID: "1377662458", GITHUB_REPOSITORY_OWNER_ID: "103035565",
+      GITHUB_REF_TYPE: "tag", GITHUB_REF_NAME: tag, GITHUB_REF: `refs/tags/${tag}`, GITHUB_SHA: commit,
+      GITHUB_WORKFLOW_REF: `taichocop/jevault/.github/workflows/release.yml@refs/tags/${tag}`,
+      GITHUB_WORKFLOW_SHA: commit, GITHUB_RUN_ATTEMPT: "1" }, config),
       HTTPS_PROXY: proxyUrl, HTTP_PROXY: proxyUrl, ALL_PROXY: proxyUrl, NO_PROXY: "", SSL_CERT_FILE: cert };
     const cli = (args) => runCommand(binary, args, { cwd: root, env });
     const version = await cli(["--version"]);
@@ -114,11 +126,21 @@ export async function validateReleaseCli(binary = "gh") {
     assert.ok(requests.some((entry) => entry.url === "/graphql" && !entry.blocked), "Real CLI tag verification must run");
     assert.deepEqual(buildReleaseArguments(tag, "/synthetic/notes.txt").slice(3, 6),
       ["release-assets/main.js", "release-assets/manifest.json", "release-assets/styles.css"]);
-    for (scenario of ["draft", "release", "401", "403", "500", "repo", "visibility", "tag", "commit", "annotation", "malformed", "network"]) {
+    for (scenario of ["owner-metadata", "installation", "missing-permissions"]) {
+      requests.length = 0;
+      await assert.rejects(publishRelease({ root, tag, commit, repository: "taichocop/jevault" }, run), /Release creation failed/);
+      assert.equal(requests.filter(entry => entry.blocked).length, 1);
+      assert.ok(requests.some(entry => entry.url.startsWith("/installation/repositories?")));
+      authenticationShapes.push(scenario);
+    }
+    for (scenario of negativeScenarios) {
       requests.length = 0;
       await assert.rejects(publishRelease({ root, tag, commit, repository: "taichocop/jevault" }, run));
       assert.equal(requests.filter((entry) => entry.blocked).length, 0, `${scenario} must fail before any write request`);
       assert.ok(requests.length > 0, "Negative scenario must use the real CLI API client");
+      if (scenario.startsWith("installation-page")) {
+        assert.ok(requests.some(entry => entry.url === "/installation/repositories?per_page=100&page=2"));
+      }
     }
     scenario = "allowed";
     const invalidInputs = [];
@@ -178,7 +200,7 @@ export async function validateReleaseCli(binary = "gh") {
         finalMockState: observed.state, assets: observed.assets, assetsBeforeDelete: observed.assetsBeforeDelete,
         publishWasApplied: observed.published, readBack, unexpectedHostBlocked: rejectedConnections.length > 0 });
     }
-    return { cli: "2.102.0", negativeScenarios: 12, invalidInputs, writeRequestsBlocked: 1,
+    return { cli: "2.102.0", negativeScenarios: negativeScenarios.length, authenticationShapes, runnerAuthenticationVerified: false, invalidInputs, writeRequestsBlocked: 1,
       annotationExact: true, lifecycle: results, realGitHubWrites: 0 };
   } finally {
     for (const socket of sockets) socket.destroy();

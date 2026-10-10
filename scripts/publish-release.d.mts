@@ -6,6 +6,8 @@ export function runCommand(command: string, args: string[], options?: { cwd?: st
 export function extractAnnotation(raw: Buffer, tag: string, commit: string): Buffer;
 export function buildReleaseArguments(tag: string, notesFile: string): string[];
 export function parseApiResponse(result: CommandResult): { status: number; body: unknown };
+export function publicationEnvironment(env: NodeJS.ProcessEnv, config: string): NodeJS.ProcessEnv;
+export function requireReleaseAuthentication(run: CommandRunner): Promise<void>;
 export function requireNoRelease(run: CommandRunner, tag: string): Promise<void>;
 export function validateStagedAssets(root: string, tag: string): Promise<string>;
 export function validateTag(run: CommandRunner, tag: string, commit: string): Promise<{ object: string; annotation: Buffer }>;

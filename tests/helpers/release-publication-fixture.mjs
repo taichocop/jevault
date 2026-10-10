@@ -27,15 +27,54 @@ export function fakeGit(args) {
   return { status: 0, stdout: Buffer.from(outputs.get(key)) };
 }
 
+export const authenticationFailures = ["repo-id", "owner-id", "owner-token", "installation-repo",
+  "installation-id", "installation-owner", "installation-empty", "installation-wide", "installation-pages", "installation-page-403",
+  "installation-count", "installation-malformed",
+  ...["metadata", "installation", "release-list"].flatMap(endpoint =>
+    [401, 403, 404, 500, 503].map(status => `${endpoint}-${status}`)),
+  ...[401, 403, 500, 503].map(status => `release-tag-${status}`)];
+
 export function mockResponse(endpoint, scenario = "allowed") {
   const prefix = "repos/taichocop/jevault";
+  const failure = /^(metadata|installation|release-tag|release-list)-(401|403|404|500|503)$/.exec(scenario);
+  const matchesEndpoint = failure && (failure[1] === "metadata" ? endpoint === prefix
+    : failure[1] === "installation" ? endpoint.startsWith("installation/repositories?")
+    : failure[1] === "release-tag" ? endpoint === `${prefix}/releases/tags/${tag}`
+    : endpoint.startsWith(`${prefix}/releases?`));
+  if (matchesEndpoint) return { status: Number(failure[2]), body: { message: "Synthetic API failure" } };
   if (scenario === "403") return { status: 403, body: { message: "Forbidden" } };
   if (scenario === "401") return { status: 401, body: { message: "Bad credentials" } };
   if (scenario === "500") return { status: 500, body: { message: "Synthetic API failure" } };
   if (endpoint === prefix) return { status: 200, body: {
+    id: scenario === "repo-id" ? 1 : 1377662458,
+    owner: { id: scenario === "owner-id" ? 1 : 103035565 },
     full_name: scenario === "repo" ? "other/fixture" : "taichocop/jevault",
-    permissions: { push: scenario !== "visibility" },
+    ...(["installation", "missing-permissions"].includes(scenario) ? {}
+      : { permissions: { push: scenario !== "visibility" } }),
   } };
+  if (endpoint.startsWith("installation/repositories?")) {
+    if (scenario === "owner-token") return { status: 403, body: { message: "Synthetic unsupported token" } };
+    if (/^installation-(401|403|404|500)$/.test(scenario)) {
+      return { status: Number(scenario.split("-")[1]), body: { message: "Synthetic API failure" } };
+    }
+    if (["installation-pages", "installation-page-403"].includes(scenario)) {
+      if (endpoint.endsWith("page=2")) return scenario === "installation-page-403"
+        ? { status: 403, body: { message: "Synthetic API failure" } }
+        : { status: 200, body: { total_count: 100, repositories: [] } };
+      return { status: 200, body: { total_count: 100, repositories: [
+        { id: 1377662458, full_name: "taichocop/jevault", owner: { id: 103035565 } },
+        ...Array.from({ length: 99 }, (_, index) => ({ id: index + 1, full_name: "other/fixture", owner: { id: 2 } })),
+      ] } };
+    }
+    if (scenario === "installation-malformed") return { status: 200, body: { repositories: [] } };
+    const repo = { id: 1377662458, full_name: "taichocop/jevault", owner: { id: 103035565 } };
+    if (scenario === "installation-repo") repo.full_name = "other/fixture";
+    if (scenario === "installation-id") repo.id = 1;
+    if (scenario === "installation-owner") repo.owner.id = 1;
+    const repositories = scenario === "installation-empty" ? [] : [repo];
+    if (scenario === "installation-wide") repositories.push({ id: 2, full_name: "other/fixture", owner: { id: 2 } });
+    return { status: 200, body: { total_count: scenario === "installation-count" ? 2 : repositories.length, repositories } };
+  }
   if (endpoint.startsWith(`${prefix}/releases?`)) return { status: 200, body: scenario === "draft"
     ? [{ tag_name: tag, draft: true }] : [] };
   if (endpoint === `${prefix}/releases/tags/${tag}`) return scenario === "release"

@@ -1,0 +1,40 @@
+name: Release authentication diagnostic (GET only)
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # checkout 前に拒否し、main 以外のコードへ診断 token を渡さない。
+      - name: Require reviewed main context
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
+          test "$GITHUB_REPOSITORY" = 'taichocop/jevault'
+          test "$GITHUB_REPOSITORY_ID" = '1377662458'
+          test "$GITHUB_REPOSITORY_OWNER_ID" = '103035565'
+          test "$GITHUB_REF" = 'refs/heads/main'
+          test "$GITHUB_REF_TYPE" = 'branch'
+          test "$GITHUB_REF_NAME" = 'main'
+          test "$GITHUB_WORKFLOW_REF" = 'taichocop/jevault/.github/workflows/release-auth-diagnostic.yml@refs/heads/main'
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+          test "$GITHUB_RUN_ATTEMPT" = '1'
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Inspect authentication and drafts (GET only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-auth-diagnostic.mjs
