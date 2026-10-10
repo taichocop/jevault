@@ -9,12 +9,12 @@ import console from "node:console";
 import { fileURLToPath } from "node:url";
 import { TextDecoder } from "node:util";
 
-export const repository = "taichocop/jevault";
+import { repository, repositoryId, ownerId, requiredApi, requireNoRelease } from "./release-auth-readonly.mjs";
+export { repository, parseApiResponse, requireReleaseAuthentication, requireNoRelease } from "./release-auth-readonly.mjs";
 export const assetNames = ["main.js", "manifest.json", "styles.css"];
 const shaPattern = /^[0-9a-f]{40}$/;
 const tagPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
-const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
 export function runCommand(command, args, options = {}) {
   return new Promise((resolve) => {
@@ -59,55 +59,6 @@ export function buildReleaseArguments(tag, notesFile) {
   }
   return ["release", "create", tag, ...assetNames.map((name) => `release-assets/${name}`),
     "--repo", repository, "--verify-tag", "--title", `Jevault ${tag}`, "--notes-file", notesFile];
-}
-
-export function parseApiResponse(result) {
-  const value = text(result.stdout);
-  const match = /^HTTP\/[\d.]+ (\d{3})[^\r\n]*\r?\n/.exec(value);
-  const separator = /\r?\n\r?\n/.exec(value);
-  if (!match || !separator) throw new Error("GitHub API failed without an explicit HTTP response.");
-  const status = Number(match[1]);
-  if ((status === 200 && result.status !== 0) || (status !== 200 && status !== 404)) {
-    throw new Error(`GitHub release API failed (HTTP ${status}).`);
-  }
-  return { status, body: json(value.slice(separator.index + separator[0].length)) };
-}
-
-async function api(run, endpoint) {
-  const result = await run("gh", ["api", "--hostname", "github.com", "--method", "GET", "--include", endpoint]);
-  return parseApiResponse(result);
-}
-
-async function requiredApi(run, endpoint) {
-  const response = await api(run, endpoint);
-  if (response.status !== 200) throw new Error("Required GitHub release API resource is missing.");
-  return response.body;
-}
-
-export async function requireNoRelease(run, tag) {
-  const prefix = `repos/${repository}`;
-  const repo = await requiredApi(run, prefix);
-  // Draft一覧にはpush権限が必要。匿名・読取権限だけの404を不存在とみなさない。
-  if (!isObject(repo) || repo.full_name !== repository || repo.permissions?.push !== true) {
-    throw new Error("Release repository identity or authenticated draft visibility is not established.");
-  }
-  const existing = await api(run, `${prefix}/releases/tags/${tag}`);
-  if (existing.status === 200) throw new Error("Release already exists; refusing to modify it.");
-  if (!isObject(existing.body) || existing.body.message !== "Not Found") {
-    throw new Error("Release absence was not confirmed by an explicit 404.");
-  }
-  for (let page = 1; page <= 1000; page += 1) {
-    const releases = await requiredApi(run, `${prefix}/releases?per_page=100&page=${page}`);
-    if (!Array.isArray(releases) || releases.some((release) => !isObject(release)
-      || typeof release.tag_name !== "string" || typeof release.draft !== "boolean")) {
-      throw new Error("Malformed release listing; draft absence is unknown.");
-    }
-    if (releases.some((release) => release.tag_name === tag)) {
-      throw new Error("Draft or release already exists; refusing to modify it.");
-    }
-    if (releases.length < 100) return;
-  }
-  throw new Error("Release listing exceeded its validation limit.");
 }
 
 export async function validateStagedAssets(root, tag) {
@@ -179,7 +130,40 @@ export async function validateTag(run, tag, commit) {
   return { object, annotation };
 }
 
-export async function publishRelease({ root, tag, commit, repository: target }, run = runCommand) {
+export function publicationEnvironment(env, config) {
+  if (env.GITHUB_ACTIONS !== "true" || env.GITHUB_EVENT_NAME !== "push"
+    || env.GITHUB_REPOSITORY !== repository || env.GITHUB_REPOSITORY_ID !== String(repositoryId)
+    || env.GITHUB_REPOSITORY_OWNER_ID !== String(ownerId) || env.GITHUB_REF_TYPE !== "tag"
+    || !tagPattern.test(env.GITHUB_REF_NAME ?? "") || env.GITHUB_REF_NAME === "0.1.0"
+    || env.GITHUB_REF !== `refs/tags/${env.GITHUB_REF_NAME}` || !shaPattern.test(env.GITHUB_SHA ?? "")
+    || env.GITHUB_WORKFLOW_REF !== `${repository}/.github/workflows/release.yml@${env.GITHUB_REF}`
+    || env.GITHUB_WORKFLOW_SHA !== env.GITHUB_SHA || env.GITHUB_RUN_ATTEMPT !== "1") {
+    throw new Error("Trusted tag-push publication context is not established.");
+  }
+  if (typeof env.GH_TOKEN !== "string" || !env.GH_TOKEN.trim()
+    || (env.GH_HOST && env.GH_HOST !== "github.com") || (env.GH_REPO && env.GH_REPO !== repository)) {
+    throw new Error("Explicit workflow token or fixed GitHub host is not established.");
+  }
+  // reviewed Workflow の github.token だけを使い、親の CLI 設定・別 token・keyring に戻らない。
+  return { PATH: env.PATH, GH_TOKEN: env.GH_TOKEN, GH_CONFIG_DIR: config, GH_HOST: "github.com",
+    GH_TELEMETRY: "disabled", DO_NOT_TRACK: "1", GH_PROMPT_DISABLED: "1",
+    GH_NO_UPDATE_NOTIFIER: "1", GH_NO_EXTENSION_UPDATE_NOTIFIER: "1" };
+}
+
+export async function publishRelease({ root, tag, commit, repository: target }, run) {
+  if (run === undefined) {
+    // 本番 entry と import の双方で、ローカル Owner 認証による公開を拒否する。
+    publicationEnvironment(process.env, "");
+    if (tag !== process.env.GITHUB_REF_NAME || commit !== process.env.GITHUB_SHA || target !== repository) {
+      throw new Error("Publication input differs from the workflow context.");
+    }
+    const config = await mkdtemp(path.join(tmpdir(), "jevault-release-cli-"));
+    try {
+      const env = publicationEnvironment(process.env, config);
+      const scoped = (command, args, options) => runCommand(command, args, { ...options, env });
+      return await publishRelease({ root, tag, commit, repository: target }, scoped);
+    } finally { await rm(config, { recursive: true, force: true }); }
+  }
   if (target !== repository || !tagPattern.test(tag) || tag === "0.1.0" || !shaPattern.test(commit)) {
     throw new Error("Invalid release repository, tag or commit.");
   }

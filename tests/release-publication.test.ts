@@ -3,8 +3,8 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { buildReleaseArguments, extractAnnotation, parseApiResponse, publishRelease,
-  requireNoRelease, validateStagedAssets, type CommandRunner } from "../scripts/publish-release.mjs";
-import { annotation, commit, fakeApiResult, fakeGit, mockResponse, object, rawTag,
+  publicationEnvironment, requireNoRelease, validateStagedAssets, type CommandRunner } from "../scripts/publish-release.mjs";
+import { authenticationFailures, annotation, commit, fakeApiResult, fakeGit, mockResponse, object, rawTag,
   releaseFixture, tag } from "./helpers/release-publication-fixture.mjs";
 
 const roots: string[] = [];
@@ -47,7 +47,7 @@ it("uses the exact three assets, fixed repository, verified tag and notes-file f
   expect(() => buildReleaseArguments("v1.2.3", "/synthetic/notes.txt")).toThrow();
 });
 
-it.each(["draft", "release", "401", "403", "500", "repo", "visibility"])("fails closed before creation on %s", async (scenario) => {
+it.each(["draft", "release", "401", "403", "500", "repo", "visibility", ...authenticationFailures])("fails closed before creation on %s", async (scenario) => {
   const root = await fixture();
   const run = runner(scenario);
   await expect(publishRelease({ root, tag, commit, repository: "taichocop/jevault" }, run)).rejects.toThrow();
@@ -182,4 +182,103 @@ it("keeps attestation unchanged and validation restricted to mock execution", as
   expect(release).toContain('node scripts/publish-release.mjs "$RELEASE_TAG"');
   expect(release).toContain("actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6");
   expect(workflow).not.toContain("--notes-from-tag");
+});
+
+
+it.each(["owner-metadata", "installation", "missing-permissions"])("accepts %s metadata only with independent installation access", async (scenario) => {
+  const run = runner(scenario);
+  await expect(requireNoRelease(run, tag)).resolves.toBeUndefined();
+  expect(run.mock.calls.some(([, args]) => args.at(-1)?.startsWith("installation/repositories?"))).toBe(true);
+  expect(run.mock.calls.every(([command, args]) => command === "gh" && args.includes("GET"))).toBe(true);
+});
+
+it("checks every installation page rather than stopping at the target repository", async () => {
+  for (const second of [{ status: 401, body: {} }, { status: 404, body: {} }, { status: 500, body: {} },
+    { status: 200, body: { total_count: 101, repositories: [{ id: 101, full_name: "other/fixture", owner: { id: 2 } }] } }]) {
+    const run = runner(); const original = run.getMockImplementation()!;
+    run.mockImplementation(async (command, args, options) => {
+      const endpoint = args.at(-1)!;
+      if (endpoint === "installation/repositories?per_page=100&page=1") return fakeApiResult({ status: 200,
+        body: { total_count: 101, repositories: [
+          { id: 1377662458, full_name: "taichocop/jevault", owner: { id: 103035565 } },
+          ...Array.from({ length: 99 }, (_, index) => ({ id: index + 1, full_name: `other/fixture-${index}`, owner: { id: 2 } })),
+        ] } });
+      if (endpoint === "installation/repositories?per_page=100&page=2") return fakeApiResult(second);
+      return original(command, args, options);
+    });
+    await expect(requireNoRelease(run, tag)).rejects.toThrow();
+    expect(run.mock.calls.some(([, args]) => args.at(-1)?.endsWith("installation/repositories?per_page=100&page=2"))).toBe(true);
+    expect(run.mock.calls.some(([, args]) => args.at(-1)?.includes("/releases"))).toBe(false);
+  }
+});
+
+it("rejects malformed, incomplete, duplicate and changing installation counts", async () => {
+  const repo = { id: 1377662458, full_name: "taichocop/jevault", owner: { id: 103035565 } };
+  for (const listing of [null, {}, { total_count: 2, repositories: [repo] },
+    { total_count: 1, repositories: [] }, { total_count: 2, repositories: [repo, repo] },
+    { total_count: "1", repositories: [repo] }, { total_count: 1, repositories: [{ ...repo, owner: null }] },
+    { total_count: 1, repositories: [{ ...repo, permissions: { push: false } }] }]) {
+    const run = runner(); const original = run.getMockImplementation()!;
+    run.mockImplementation(async (command, args, options) => args.at(-1)?.startsWith("installation/repositories?")
+      ? fakeApiResult({ status: 200, body: listing }) : original(command, args, options));
+    await expect(requireNoRelease(run, tag)).rejects.toThrow();
+  }
+  const run = runner(); const original = run.getMockImplementation()!;
+  run.mockImplementation(async (command, args, options) => {
+    if (args.at(-1) === "installation/repositories?per_page=100&page=1") return fakeApiResult({ status: 200,
+      body: { total_count: 100, repositories: Array.from({ length: 100 }, (_, id) => ({ id: id + 1, full_name: "other/fixture", owner: { id: 2 } })) } });
+    if (args.at(-1) === "installation/repositories?per_page=100&page=2") return fakeApiResult({ status: 200, body: { total_count: 101, repositories: [] } });
+    return original(command, args, options);
+  });
+  await expect(requireNoRelease(run, tag)).rejects.toThrow("Malformed installation");
+});
+
+it.each(["repos/taichocop/jevault", "installation/repositories?per_page=100&page=1",
+  `repos/taichocop/jevault/releases/tags/${tag}`, "repos/taichocop/jevault/releases?per_page=100&page=1"])("treats transport loss at %s as unknown", async (endpoint) => {
+  const run = runner(); const original = run.getMockImplementation()!;
+  run.mockImplementation(async (command, args, options) => args.at(-1) === endpoint
+    ? { status: 1, stdout: Buffer.alloc(0) } : original(command, args, options));
+  await expect(requireNoRelease(run, tag)).rejects.toThrow("without an explicit HTTP response");
+});
+
+function workflowEnvironment(): NodeJS.ProcessEnv {
+  return { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_REPOSITORY: "taichocop/jevault",
+    GITHUB_REPOSITORY_ID: "1377662458", GITHUB_REPOSITORY_OWNER_ID: "103035565",
+    GITHUB_REF_TYPE: "tag", GITHUB_REF_NAME: tag, GITHUB_REF: `refs/tags/${tag}`, GITHUB_SHA: commit,
+    GITHUB_WORKFLOW_REF: `taichocop/jevault/.github/workflows/release.yml@refs/tags/${tag}`,
+    GITHUB_WORKFLOW_SHA: commit, GITHUB_RUN_ATTEMPT: "1", GH_TOKEN: "synthetic-workflow-token" };
+}
+
+it("requires the reviewed tag-push context and isolates CLI configuration without fallback", () => {
+  const env = { ...workflowEnvironment(), PATH: "/synthetic/bin", GH_CONFIG_DIR: "/untrusted/config",
+    GITHUB_TOKEN: "synthetic-other-token", HTTPS_PROXY: "https://untrusted.invalid", HOME: "/synthetic/home" };
+  const scoped = publicationEnvironment(env, "/synthetic/empty-config");
+  expect(scoped.GH_TOKEN).toBe("synthetic-workflow-token");
+  expect(scoped.GH_CONFIG_DIR).toBe("/synthetic/empty-config");
+  expect(scoped.GH_HOST).toBe("github.com");
+  expect(scoped).not.toHaveProperty("GITHUB_TOKEN");
+  expect(scoped).not.toHaveProperty("HOME");
+  expect(scoped).not.toHaveProperty("HTTPS_PROXY");
+  for (const key of Object.keys(workflowEnvironment())) {
+    const missing = { ...workflowEnvironment() }; delete missing[key];
+    expect(() => publicationEnvironment(missing, "/synthetic/config")).toThrow();
+  }
+});
+
+it.each([
+  { GITHUB_EVENT_NAME: "pull_request" }, { GITHUB_EVENT_NAME: "workflow_dispatch" },
+  { GITHUB_REPOSITORY: "other/fixture" }, { GITHUB_REPOSITORY_ID: "1" }, { GITHUB_REPOSITORY_OWNER_ID: "1" },
+  { GITHUB_REF_TYPE: "branch" }, { GITHUB_REF: "refs/heads/main" }, { GITHUB_REF_NAME: "v1.2.3" },
+  { GITHUB_WORKFLOW_REF: "other/fixture/.github/workflows/release.yml@refs/tags/1.2.3" },
+  { GITHUB_WORKFLOW_SHA: "c".repeat(40) }, { GITHUB_RUN_ATTEMPT: "2" }, { GH_TOKEN: " " },
+  { GH_HOST: "other.invalid" }, { GH_REPO: "other/fixture" },
+])("rejects untrusted production context %j", (change) => {
+  expect(() => publicationEnvironment({ ...workflowEnvironment(), ...change }, "/synthetic/config")).toThrow();
+});
+
+it("blocks default production execution outside Actions before filesystem or network work", async () => {
+  vi.stubEnv("GITHUB_ACTIONS", "false");
+  try {
+    await expect(publishRelease({ root: "/nonexistent/synthetic", tag, commit, repository: "taichocop/jevault" })).rejects.toThrow("Trusted tag-push");
+  } finally { vi.unstubAllEnvs(); }
 });

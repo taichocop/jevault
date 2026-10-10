@@ -1,4 +1,5 @@
 import type { CommandResult } from "../../scripts/publish-release.mjs";
+export const authenticationFailures: string[];
 export const tag: string;
 export const commit: string;
 export const object: string;
