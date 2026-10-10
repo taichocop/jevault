@@ -1,0 +1,10 @@
+import type { CommandResult } from "../../scripts/publish-release.mjs";
+export const tag: string;
+export const commit: string;
+export const object: string;
+export const annotation: Buffer;
+export function rawTag(body?: Buffer): Buffer;
+export function fakeGit(args: string[]): CommandResult;
+export function mockResponse(endpoint: string, scenario?: string): { status: number; body: unknown };
+export function fakeApiResult(response: { status: number; body: unknown }): CommandResult;
+export function releaseFixture(): Promise<string>;
