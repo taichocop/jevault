@@ -1,7 +1,7 @@
 {
   "id": "jevault",
   "name": "Jevault",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "minAppVersion": "1.11.4",
   "description": "Suggests destination folders using the existing structure of your vault.",
   "author": "taichocop",
