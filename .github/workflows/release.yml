@@ -22,6 +22,12 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      - name: Require protected release tags (read-only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh --version
+          node scripts/require-protected-release-tags.mjs
       - run: npm ci
       - run: npm test
       - run: npm run typecheck
@@ -69,25 +75,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # API で検証可能なタグ保護を要求する。bypass actor がないことは release 前に owner が確認する。
-          rule_ids="$(gh api --paginate --slurp 'repos/taichocop/jevault/rulesets?targets=tag&per_page=100' --jq '.[][] | .id')"
-          protected=false
-          for rule_id in $rule_ids; do
-            if gh api "repos/taichocop/jevault/rulesets/$rule_id" --jq '
-              select(.target == "tag" and .enforcement == "active"
-                and ((.conditions.ref_name.include // []) | index("~ALL") != null)
-                and ((.conditions.ref_name.exclude // []) | length == 0)
-                and any(.rules[]; .type == "update")
-                and any(.rules[]; .type == "deletion")) | .id
-            ' | grep -q .; then
-              protected=true
-              break
-            fi
-          done
-          if [ "$protected" != true ]; then
-            echo 'Active all-tag ruleset must restrict updates and deletions before release.' >&2
-            exit 1
-          fi
+          gh --version
+          node scripts/require-protected-release-tags.mjs
       - name: Stage and validate exact assets
         env:
           RELEASE_TAG: ${{ github.ref_name }}
