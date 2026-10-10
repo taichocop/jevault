@@ -9,7 +9,7 @@ import process from "node:process";
 import { createSecureContext, TLSSocket } from "node:tls";
 import { fileURLToPath } from "node:url";
 import { buildReleaseArguments, publishRelease, runCommand, parseApiResponse, publicationEnvironment } from "./publish-release.mjs";
-import { authenticationFailures, annotation, commit, fakeGit, mockResponse, releaseFixture, rawTag, tag } from "../tests/helpers/release-publication-fixture.mjs";
+import { authenticationFailures, diagnosticAuthenticationFailures, annotation, commit, fakeGit, mockResponse, releaseFixture, rawTag, tag } from "../tests/helpers/release-publication-fixture.mjs";
 import { lifecycleCases, releaseLifecycle } from "../tests/helpers/release-cli-lifecycle.mjs";
 
 export async function validateReleaseCli(binary = "gh") {
@@ -19,8 +19,8 @@ export async function validateReleaseCli(binary = "gh") {
   const requests = [];
   let scenario = "allowed";
   const authenticationShapes = [];
-  const negativeScenarios = ["draft", "release", "401", "403", "500", "repo", "visibility", "tag", "commit",
-    "annotation", "malformed", "network", ...authenticationFailures, "metadata-network", "installation-network", "release-tag-network", "release-list-network"];
+  const negativeScenarios = ["draft", "release", "401", "403", "500", "repo", "tag", "commit",
+    "annotation", "malformed", "network", ...authenticationFailures, "metadata-network", "release-tag-network", "release-list-network"];
   let lifecycle;
   let mockFailure;
   const rejectedConnections = [];
@@ -34,7 +34,6 @@ export async function validateReleaseCli(binary = "gh") {
     requests.push(entry);
     if ((scenario === "metadata-network" && request.url === "/repos/taichocop/jevault")
       || (scenario === "release-tag-network" && request.url === `/repos/taichocop/jevault/releases/tags/${tag}`)
-      || (scenario === "installation-network" && request.url.startsWith("/installation/repositories?"))
       || (scenario === "release-list-network" && request.url.startsWith("/repos/taichocop/jevault/releases?"))) {
       response.destroy(); return;
     }
@@ -126,11 +125,11 @@ export async function validateReleaseCli(binary = "gh") {
     assert.ok(requests.some((entry) => entry.url === "/graphql" && !entry.blocked), "Real CLI tag verification must run");
     assert.deepEqual(buildReleaseArguments(tag, "/synthetic/notes.txt").slice(3, 6),
       ["release-assets/main.js", "release-assets/manifest.json", "release-assets/styles.css"]);
-    for (scenario of ["owner-metadata", "installation", "missing-permissions"]) {
+    for (scenario of ["owner-metadata", "installation", "missing-permissions", "visibility", ...diagnosticAuthenticationFailures]) {
       requests.length = 0;
       await assert.rejects(publishRelease({ root, tag, commit, repository: "taichocop/jevault" }, run), /Release creation failed/);
       assert.equal(requests.filter(entry => entry.blocked).length, 1);
-      assert.ok(requests.some(entry => entry.url.startsWith("/installation/repositories?")));
+      assert.ok(requests.every(entry => !entry.url.startsWith("/installation/repositories?")));
       authenticationShapes.push(scenario);
     }
     for (scenario of negativeScenarios) {
@@ -138,9 +137,6 @@ export async function validateReleaseCli(binary = "gh") {
       await assert.rejects(publishRelease({ root, tag, commit, repository: "taichocop/jevault" }, run));
       assert.equal(requests.filter((entry) => entry.blocked).length, 0, `${scenario} must fail before any write request`);
       assert.ok(requests.length > 0, "Negative scenario must use the real CLI API client");
-      if (scenario.startsWith("installation-page")) {
-        assert.ok(requests.some(entry => entry.url === "/installation/repositories?per_page=100&page=2"));
-      }
     }
     scenario = "allowed";
     const invalidInputs = [];

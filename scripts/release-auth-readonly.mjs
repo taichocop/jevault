@@ -37,63 +37,13 @@ export async function requiredApi(run, endpoint) {
   return response.body;
 }
 
-function requireRepositoryIdentity(repo) {
+export async function requireReleaseAuthentication(run) {
+  const repo = await requiredApi(run, `repos/${repository}`);
   if (!isObject(repo) || repo.full_name !== repository || repo.id !== repositoryId
     || !isObject(repo.owner) || repo.owner.id !== ownerId) {
     throw new Error("Release repository identity mismatch.");
   }
-  // permissions は任意のユーザー権限情報。欠落は Installation の独立照合で補う。
-  if (Object.hasOwn(repo, "permissions") && (!isObject(repo.permissions)
-    || repo.permissions.push !== true)) {
-    throw new Error("Repository permissions contradict the publication context.");
-  }
-}
-
-export async function requireReleaseAuthentication(run, observe = () => {}) {
-  const repo = await requiredApi(run, `repos/${repository}`);
-  observe({ metadata: {
-    nameMatches: isObject(repo) && repo.full_name === repository,
-    repositoryIdMatches: isObject(repo) && repo.id === repositoryId,
-    ownerIdMatches: isObject(repo) && isObject(repo.owner) && repo.owner.id === ownerId,
-    permissionsPresent: isObject(repo) && Object.hasOwn(repo, "permissions"),
-    push: !isObject(repo) || !Object.hasOwn(repo, "permissions") ? "missing"
-      : !isObject(repo.permissions) || !Object.hasOwn(repo.permissions, "push") ? "invalid"
-      : repo.permissions.push === true ? "true" : repo.permissions.push === false ? "false" : "invalid",
-  } });
-  requireRepositoryIdentity(repo);
-  let total;
-  const seen = new Set();
-  let matches = true;
-  for (let page = 1; page <= 1000; page += 1) {
-    const listing = await requiredApi(run, `installation/repositories?per_page=100&page=${page}`);
-    if (!isObject(listing) || !Number.isSafeInteger(listing.total_count) || listing.total_count < 0
-      || !Array.isArray(listing.repositories) || listing.repositories.length > 100
-      || (total !== undefined && total !== listing.total_count)) {
-      throw new Error("Malformed installation repository listing.");
-    }
-    total = listing.total_count;
-    observe({ installation: { pages: page, count: seen.size + listing.repositories.length, complete: false } });
-    for (const repo of listing.repositories) {
-      if (!isObject(repo) || !Number.isSafeInteger(repo.id) || repo.id <= 0
-        || typeof repo.full_name !== "string" || !isObject(repo.owner)
-        || !Number.isSafeInteger(repo.owner.id) || seen.has(repo.id)) {
-        throw new Error("Malformed installation repository listing.");
-      }
-      seen.add(repo.id);
-      matches &&= repo.id === repositoryId && repo.full_name === repository && repo.owner.id === ownerId;
-      if (repo.id === repositoryId) requireRepositoryIdentity(repo);
-    }
-    if (seen.size > total) throw new Error("Inconsistent installation repository count.");
-    if (listing.repositories.length < 100) {
-      // GITHUB_TOKEN はこの Repository だけ。アクセス成功を Contents write の証明にしない。
-      if (seen.size !== total || total !== 1 || !matches) {
-        throw new Error("Installation token repository scope is not established.");
-      }
-      observe({ installation: { pages: page, count: seen.size, complete: true } });
-      return;
-    }
-  }
-  throw new Error("Installation listing exceeded its validation limit.");
+  // permissions.push はユーザー権限情報。job の contents: write の可否は GitHub が判定する。
 }
 
 export async function inspectReleaseState(run, tag, observe = () => {}) {
@@ -127,6 +77,7 @@ export async function inspectReleaseState(run, tag, observe = () => {}) {
     observe({ releases: { pages: page, count, drafts, complete: releases.length < 100 },
       ...(targetState !== "absent" ? { targetState } : {}) });
     if (releases.length < 100) {
+      // 空の認証済み GET は Draft 可視性・書込権限を証明しない。衝突の最終判定は CLI/API に委ねる。
       observe({ targetState });
       if (targetState !== "absent") throw new Error("Draft or release already exists; refusing to modify it.");
       return;
@@ -137,6 +88,6 @@ export async function inspectReleaseState(run, tag, observe = () => {}) {
 
 export async function requireNoRelease(run, tag, observe = () => {}) {
   if (!tagPattern.test(tag) || tag === "0.1.0") throw new Error("Invalid release tag.");
-  await requireReleaseAuthentication(run, observe);
+  await requireReleaseAuthentication(run);
   await inspectReleaseState(run, tag, observe);
 }

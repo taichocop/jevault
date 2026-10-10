@@ -27,10 +27,11 @@ export function fakeGit(args) {
   return { status: 0, stdout: Buffer.from(outputs.get(key)) };
 }
 
-export const authenticationFailures = ["repo-id", "owner-id", "owner-token", "installation-repo",
-  "installation-id", "installation-owner", "installation-empty", "installation-wide", "installation-pages", "installation-page-403",
-  "installation-count", "installation-malformed",
-  ...["metadata", "installation", "release-list"].flatMap(endpoint =>
+export const diagnosticAuthenticationFailures = ["owner-token", "installation-repo", "installation-id", "installation-owner",
+  "installation-empty", "installation-wide", "installation-pages", "installation-page-403", "installation-count", "installation-malformed",
+  ...[401, 403, 404, 500, 503].map(status => `installation-${status}`)];
+export const authenticationFailures = ["repo-id", "owner-id",
+  ...["metadata", "release-list"].flatMap(endpoint =>
     [401, 403, 404, 500, 503].map(status => `${endpoint}-${status}`)),
   ...[401, 403, 500, 503].map(status => `release-tag-${status}`)];
 

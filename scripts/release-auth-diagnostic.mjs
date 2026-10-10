@@ -4,7 +4,7 @@ import path from "node:path";
 import process from "node:process";
 import { request } from "node:https";
 import { fileURLToPath } from "node:url";
-import { repository, repositoryId, ownerId, requireNoRelease } from "./release-auth-readonly.mjs";
+import { repository, repositoryId, ownerId, requiredApi, inspectReleaseState } from "./release-auth-readonly.mjs";
 
 export const diagnosticTag = "0.5.2";
 const prefix = `repos/${repository}`;
@@ -87,6 +87,67 @@ export async function diagnosticGet(endpoint, token, transport = nativeGet) {
   return response;
 }
 
+// 旧診断の互換性をここだけに隔離し、通常公開の必須検査には戻さない。
+const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+function requireRepositoryIdentity(repo) {
+  if (!isObject(repo) || repo.full_name !== repository || repo.id !== repositoryId
+    || !isObject(repo.owner) || repo.owner.id !== ownerId) {
+    throw new Error("Release repository identity mismatch.");
+  }
+  // 旧診断の結果互換性だけを維持する。ここでの push 判定も job 権限の証明ではない。
+  if (Object.hasOwn(repo, "permissions") && (!isObject(repo.permissions)
+    || repo.permissions.push !== true)) {
+    throw new Error("Repository permissions contradict the publication context.");
+  }
+}
+
+async function requireDiagnosticAuthentication(run, observe = () => {}) {
+  const repo = await requiredApi(run, `repos/${repository}`);
+  observe({ metadata: {
+    nameMatches: isObject(repo) && repo.full_name === repository,
+    repositoryIdMatches: isObject(repo) && repo.id === repositoryId,
+    ownerIdMatches: isObject(repo) && isObject(repo.owner) && repo.owner.id === ownerId,
+    permissionsPresent: isObject(repo) && Object.hasOwn(repo, "permissions"),
+    push: !isObject(repo) || !Object.hasOwn(repo, "permissions") ? "missing"
+      : !isObject(repo.permissions) || !Object.hasOwn(repo.permissions, "push") ? "invalid"
+      : repo.permissions.push === true ? "true" : repo.permissions.push === false ? "false" : "invalid",
+  } });
+  requireRepositoryIdentity(repo);
+  let total;
+  const seen = new Set();
+  let matches = true;
+  for (let page = 1; page <= 1000; page += 1) {
+    const listing = await requiredApi(run, `installation/repositories?per_page=100&page=${page}`);
+    if (!isObject(listing) || !Number.isSafeInteger(listing.total_count) || listing.total_count < 0
+      || !Array.isArray(listing.repositories) || listing.repositories.length > 100
+      || (total !== undefined && total !== listing.total_count)) {
+      throw new Error("Malformed installation repository listing.");
+    }
+    total = listing.total_count;
+    observe({ installation: { pages: page, count: seen.size + listing.repositories.length, complete: false } });
+    for (const repo of listing.repositories) {
+      if (!isObject(repo) || !Number.isSafeInteger(repo.id) || repo.id <= 0
+        || typeof repo.full_name !== "string" || !isObject(repo.owner)
+        || !Number.isSafeInteger(repo.owner.id) || seen.has(repo.id)) {
+        throw new Error("Malformed installation repository listing.");
+      }
+      seen.add(repo.id);
+      matches &&= repo.id === repositoryId && repo.full_name === repository && repo.owner.id === ownerId;
+      if (repo.id === repositoryId) requireRepositoryIdentity(repo);
+    }
+    if (seen.size > total) throw new Error("Inconsistent installation repository count.");
+    if (listing.repositories.length < 100) {
+      // GITHUB_TOKEN はこの Repository だけ。アクセス成功を Contents write の証明にしない。
+      if (seen.size !== total || total !== 1 || !matches) {
+        throw new Error("Installation token repository scope is not established.");
+      }
+      observe({ installation: { pages: page, count: seen.size, complete: true } });
+      return;
+    }
+  }
+  throw new Error("Installation listing exceeded its validation limit.");
+}
+
 function failureCode(error, status, targetState) {
   if (error instanceof DiagnosticError) return error.code;
   if ([401, 403, 404].includes(status) || status >= 500) return `http-${status}`;
@@ -130,7 +191,9 @@ export async function runDiagnostic({ env = process.env, transport = nativeGet }
       return { status: response.status === 200 ? 0 : 1,
         stdout: Buffer.concat([Buffer.from(`HTTP/1.1 ${response.status} Diagnostic\r\n\r\n`), response.bytes]) };
     };
-    await requireNoRelease(run, diagnosticTag, observation => Object.assign(report, observation));
+    const observe = observation => Object.assign(report, observation);
+    await requireDiagnosticAuthentication(run, observe);
+    await inspectReleaseState(run, diagnosticTag, observe);
     report.result = "checks-passed";
   } catch (error) { report.failure = failureCode(error, lastStatus, report.targetState); }
   if (report.releases?.complete) report.draftVisibility = report.releases.drafts > 0 ? "draft-returned" : "no-direct-draft-evidence";

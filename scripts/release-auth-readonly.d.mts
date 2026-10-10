@@ -11,6 +11,6 @@ export const repositoryId: number;
 export const ownerId: number;
 export function parseApiResponse(result: CommandResult): { status: number; body: unknown };
 export function requiredApi(run: CommandRunner, endpoint: string): Promise<unknown>;
-export function requireReleaseAuthentication(run: CommandRunner, observe?: (result: Observation) => void): Promise<void>;
+export function requireReleaseAuthentication(run: CommandRunner): Promise<void>;
 export function inspectReleaseState(run: CommandRunner, tag: string, observe?: (result: Observation) => void): Promise<void>;
 export function requireNoRelease(run: CommandRunner, tag: string, observe?: (result: Observation) => void): Promise<void>;
