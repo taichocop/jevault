@@ -26,7 +26,10 @@ Jevault is an Obsidian plugin that suggests destination folders for Markdown not
 
 ## Documentation and rationale
 
-- Use the GitHub Issue/PR for transient notes; avoid root-level `ISSUE_*.md`. Put durable architecture in `docs/architecture/` and historical research/safety/verification evidence in `docs/history/`.
+- Keep product code, tests, public user/security/privacy/release documentation and root AGENTS.md Git-managed in this public repository.
+- Store internal architecture/design, safety/runtime evidence and agent operational/review records only in an owner-approved Private location. Request authorized access when needed; do not recreate public `docs/` or `agent/` for internal records.
+- Public Issues/PRs should contain only the information needed for scope, review and public engineering coordination. Never include Secrets, note bodies, environment dumps, private absolute paths, Private storage URLs or unnecessary agent/runtime identifiers; keep detailed internal evidence Private.
+- Avoid root-level `ISSUE_*.md`. Run `node scripts/verify-public-boundary.mjs` (also included in `npm run verify`) to reject tracked root `docs/` or `agent/` entries, including force-added files.
 - Add concise Japanese rationale comments only for non-obvious safety, privacy, Obsidian, adapter, validation or error-handling decisions.
 
 ## Human authorization
