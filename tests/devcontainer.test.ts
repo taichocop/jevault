@@ -3,8 +3,18 @@ import { describe, expect, it } from "vitest";
 
 const config = JSON.parse(readFileSync(new URL("../.devcontainer/devcontainer.json", import.meta.url), "utf8"));
 const dockerfile = readFileSync(new URL("../.devcontainer/Dockerfile", import.meta.url), "utf8");
+const pinnedNode22BaseImage = /^FROM node:22\.\d+\.\d+-bookworm-slim@sha256:[a-f0-9]{64}$/m;
 
 describe("Dev Container boundaries", () => {
+  it.each([
+    { name: "accepts a Node 22 image with a 64-character hexadecimal digest", from: `FROM node:22.23.3-bookworm-slim@sha256:${"a".repeat(64)}`, accepted: true },
+    { name: "rejects a missing digest", from: "FROM node:22.23.3-bookworm-slim", accepted: false },
+    { name: "rejects a short digest", from: `FROM node:22.23.3-bookworm-slim@sha256:${"a".repeat(63)}`, accepted: false },
+    { name: "rejects non-hexadecimal digest characters", from: `FROM node:22.23.3-bookworm-slim@sha256:${"a".repeat(63)}g`, accepted: false },
+  ])("$name", ({ from, accepted }) => {
+    expect(pinnedNode22BaseImage.test(from)).toBe(accepted);
+  });
+
   it("binds only the selected clone and isolates Linux dependencies and Codex state", () => {
     expect(config.workspaceMount).toBe("source=${localWorkspaceFolder},target=/workspaces/jevault,type=bind");
     expect(config.workspaceFolder).toBe("/workspaces/jevault");
@@ -35,7 +45,7 @@ describe("Dev Container boundaries", () => {
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
     expect(pkg.engines.node).toBe("^20.19.0 || ^22.13.0 || >=24.0.0");
     expect({ ...pkg.dependencies, ...pkg.devDependencies }).not.toHaveProperty("@openai/codex");
-    expect(dockerfile).toMatch(/^FROM node:22\.\d+\.\d+-bookworm-slim(?:@sha256:[a-f0-9]{64})?$/m);
+    expect(dockerfile).toMatch(pinnedNode22BaseImage);
     expect(dockerfile).toMatch(/npm install --global @openai\/codex@\d+\.\d+\.\d+\s/);
   });
 });

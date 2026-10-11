@@ -28,8 +28,17 @@ The host CLI needs Node >=20; use a maintained Node version supported by
 | Dev Container CLI | 0.89.0, host-only tool |
 
 The lifecycle was exercised on macOS arm64 with Docker Desktop / Engine 29.3.1
-and Linux arm64 containers. **Codex sandbox execution is blocked on this setup**
-by namespace creation permissions under the default Docker security policy.
+and Linux arm64 containers. The follow-up sandbox check used the Docker VM's
+`6.12.76-linuxkit` kernel; Debian Bookworm is the container userspace, not the
+kernel. Host, image, Node and bubblewrap architectures were arm64, with no
+cross-architecture image execution involved.
+**Codex sandbox execution remains blocked on this setup.** The corrected
+command below selects workspace-write, but `/usr/bin/bwrap` fails its namespace
+`clone` with `EPERM` before the requested command starts. The
+[matching Docker Engine default seccomp rules](https://github.com/moby/moby/blob/f78c987ad3710cacffe47fce696975ecb337148d/vendor/github.com/moby/profiles/seccomp/default_linux.go#L593-L682)
+deny that clone when the capability bounding set lacks `CAP_SYS_ADMIN`, as in
+this container. No security-policy exception was applied. Other possible
+restrictions after namespace creation remain untested.
 CLI installation and project verification alone do not establish a working
 Codex development environment. Native Linux, amd64, Windows/WSL and other
 runtimes are unverified. The fixed `node` UID/GID is 1000; native Linux bind
@@ -69,8 +78,24 @@ Before logging in, run the official sandbox helper with synthetic input:
 
 ```sh
 devcontainer exec --workspace-folder "$workspace" codex --help
-devcontainer exec --workspace-folder "$workspace" codex sandbox linux -c 'sandbox_mode="workspace-write"' -- sh -c 'printf "synthetic sandbox probe\n"'
+devcontainer exec --workspace-folder "$workspace" codex sandbox --help
+devcontainer exec --workspace-folder "$workspace" codex sandbox -c 'sandbox_mode="workspace-write"' -- sh -c 'printf "synthetic sandbox probe\n"'
+devcontainer exec --workspace-folder "$workspace" node .devcontainer/check-sandbox.mjs
 ```
+
+Codex 0.162.1 chooses the sandbox backend from the host OS; `linux` is not a
+subcommand. See the [versioned CLI definition](https://github.com/openai/codex/blob/rust-v0.162.1/codex-rs/cli/src/main.rs#L463-L482).
+The manual acceptance probe runs only in the Linux container as UID 1000 with
+`HOME=/home/node`. It first proves that ordinary Node can write its dedicated
+HOME fixture, then requires a sandbox command to start, a workspace write to
+succeed, an outside write to be denied and the outside contents to remain
+unchanged. It removes only its generated fixtures. It requires no authentication,
+does not alter configuration and is separate from normal `npm test`.
+Run it only in a verification container without authentication state, then repeat
+after recreation.
+A namespace initialization failure is **FAIL**, with later checks **NOT RUN**;
+it is not successful protection of the outside fixture. Only all stages passing
+before and after recreation establishes these command/filesystem checks.
 
 If this fails with `bwrap: No permissions to create new namespace`, stop Codex
 development and report the runtime/security policy. Installing bubblewrap does
@@ -116,6 +141,7 @@ Rebuild/recreate only this workspace's container (volumes remain):
 ```sh
 devcontainer up --workspace-folder "$workspace" --remove-existing-container --build-no-cache
 devcontainer exec --workspace-folder "$workspace" npm run verify
+devcontainer exec --workspace-folder "$workspace" node .devcontainer/check-sandbox.mjs
 devcontainer exec --workspace-folder "$workspace" codex login status
 ```
 
