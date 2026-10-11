@@ -192,6 +192,8 @@ build time, so Git/bubblewrap patch versions can change; this is not a bit-for-b
 image-build guarantee. Rebuild without cache and repeat versions, sandbox probe,
 `npm run verify`, stop/resume, recreation and state checks. Update the host CLI
 separately. Never update product dependencies solely to install development tools.
+The Dockerfile intentionally has one stage; the regression guard requires exactly
+one digest-pinned Node base and rejects additional stages, including pinned ones.
 
 The build context is only `.devcontainer`, with no source/auth `COPY`. The
 container process has network access for installations and Codex login/model
