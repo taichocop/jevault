@@ -141,9 +141,11 @@ Rebuild/recreate only this workspace's container (volumes remain):
 ```sh
 devcontainer up --workspace-folder "$workspace" --remove-existing-container --build-no-cache
 devcontainer exec --workspace-folder "$workspace" npm run verify
-devcontainer exec --workspace-folder "$workspace" node .devcontainer/check-sandbox.mjs
 devcontainer exec --workspace-folder "$workspace" codex login status
 ```
+
+Repeat the sandbox acceptance probe before and after recreation only in a
+verification container without authentication state, as described above.
 
 For removal followed by later recreation, refresh `container_id` with the
 selection above, then run `docker stop "$container_id"` and
