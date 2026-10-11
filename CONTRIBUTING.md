@@ -28,17 +28,10 @@ The host CLI needs Node >=20; use a maintained Node version supported by
 | Dev Container CLI | 0.89.0, host-only tool |
 
 The lifecycle was exercised on macOS arm64 with Docker Desktop / Engine 29.3.1
-and Linux arm64 containers. The follow-up sandbox check used the Docker VM's
-`6.12.76-linuxkit` kernel; Debian Bookworm is the container userspace, not the
-kernel. Host, image, Node and bubblewrap architectures were arm64, with no
-cross-architecture image execution involved.
-**Codex sandbox execution remains blocked on this setup.** The corrected
-command below selects workspace-write, but `/usr/bin/bwrap` fails its namespace
-`clone` with `EPERM` before the requested command starts. The
-[matching Docker Engine default seccomp rules](https://github.com/moby/moby/blob/f78c987ad3710cacffe47fce696975ecb337148d/vendor/github.com/moby/profiles/seccomp/default_linux.go#L593-L682)
-deny that clone when the capability bounding set lacks `CAP_SYS_ADMIN`, as in
-this container. No security-policy exception was applied. Other possible
-restrictions after namespace creation remain untested.
+and Linux arm64 containers. **Codex sandbox execution remains blocked on this
+setup.** The corrected command below selects workspace-write, but namespace
+creation fails before the requested command starts. A separate owner security
+decision is required; no security-policy exception was applied.
 CLI installation and project verification alone do not establish a working
 Codex development environment. Native Linux, amd64, Windows/WSL and other
 runtimes are unverified. The fixed `node` UID/GID is 1000; native Linux bind
