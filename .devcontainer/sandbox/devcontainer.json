@@ -1,0 +1,24 @@
+{
+  "name": "Jevault Codex sandbox (opt-in)",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".."
+  },
+  "containerUser": "node",
+  "remoteUser": "node",
+  "updateRemoteUserUID": false,
+  "userEnvProbe": "none",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/jevault,type=bind",
+  "workspaceFolder": "/workspaces/jevault",
+  "mounts": [
+    "source=jevault-${devcontainerId}-sandbox-node-modules,target=/workspaces/jevault/node_modules,type=volume",
+    "source=jevault-${devcontainerId}-sandbox-codex,target=/home/node/.codex,type=volume"
+  ],
+  "runArgs": [
+    "--cap-drop=ALL",
+    "--security-opt=no-new-privileges=true",
+    "--security-opt=seccomp=unconfined"
+  ],
+  "postCreateCommand": "npm ci",
+  "shutdownAction": "none"
+}

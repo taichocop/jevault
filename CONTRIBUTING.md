@@ -27,14 +27,13 @@ The host CLI needs Node >=20; use a maintained Node version supported by
 | Codex CLI | 0.162.1, official npm package `@openai/codex` |
 | Dev Container CLI | 0.89.0, host-only tool |
 
-The lifecycle was exercised on macOS arm64 with Docker Desktop / Engine 29.3.1
-and Linux arm64 containers. **Codex sandbox execution remains blocked on this
-setup.** The corrected command below selects workspace-write, but namespace
-creation fails before the requested command starts. A separate owner security
-decision is required; no security-policy exception was applied.
+The ordinary profile may block Codex's nested namespace creation. The separately
+selected [opt-in profile](.devcontainer/SANDBOX.md) requires an owner security
+decision and local validation before use; the ordinary profile retains Docker's
+default protection.
 CLI installation and project verification alone do not establish a working
-Codex development environment. Native Linux, amd64, Windows/WSL and other
-runtimes are unverified. The fixed `node` UID/GID is 1000; native Linux bind
+Codex development environment. Validate the gates on your runtime and architecture.
+The fixed `node` UID/GID is 1000; native Linux bind
 mounts must already be writable by that user. Automatic UID rewriting is
 disabled to keep named-volume ownership consistent.
 
@@ -96,8 +95,17 @@ not guarantee that nested namespaces are permitted. See the
 [official sandbox documentation](https://learn.chatgpt.com/docs/sandboxing).
 Do not bypass the sandbox, use privileged mode, add capabilities, disable
 seccomp or mount the Docker socket to make the probe pass. Any security-policy
-exception needs a separate owner decision and review; none is configured here.
+exception needs a separate owner decision and review; none is configured in
+the ordinary profile.
 Project verification and lifecycle operations can still be tested.
+
+The [opt-in sandbox guide](.devcontainer/SANDBOX.md) documents the container-only
+seccomp exception, its risks and unauthenticated synthetic gates. Select
+`.devcontainer/sandbox/devcontainer.json` explicitly on every CLI command when
+using that profile, after owner approval and local validation. Owner login and
+the terminal approval UI remain separate checks. That guide uses a workspace-write
+wrapper with Codex's managed proxy and an empty command-network allowlist to
+keep Node subprocesses compatible with the sandbox.
 
 When sandbox execution is supported, the owner performs initial login directly
 in their terminal using the [official headless device flow](https://learn.chatgpt.com/docs/auth#login-on-headless-devices):

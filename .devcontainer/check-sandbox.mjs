@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const managed = process.argv[2] === "--managed";
 const workspace = fileURLToPath(new URL("../", import.meta.url));
 const stages = ["outside write control", "sandbox simple command", "sandbox workspace write", "sandbox outside write denial", "outside content unchanged"];
 const baseline = "synthetic outside control\n";
@@ -12,10 +13,15 @@ const fixtures = [];
 let stage = "prerequisites";
 
 function run(script, file, sandbox = false) {
-  const args = ["-e", script, ...(file ? [file] : [])];
+  // ネットワーク制限下のsocket型stdoutでも、成功markerを同期writeで確実に渡す。
+  const args = ["-e", `const report = (marker) => require("node:fs").writeSync(1, marker + "\\n");\n${script}`, ...(file ? [file] : [])];
+  if (sandbox && managed) {
+    return spawnSync("sh", [join(workspace, ".devcontainer/sandbox/codex.sh"), "sandbox", "--", process.execPath, ...args],
+      { cwd: workspace, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 30_000, maxBuffer: 64 * 1024 });
+  }
   return spawnSync(sandbox ? "codex" : process.execPath, sandbox
     ? ["sandbox", "-c", 'sandbox_mode="workspace-write"', "--", process.execPath, ...args]
-    : args, { cwd: workspace, encoding: "utf8", timeout: 30_000, maxBuffer: 64 * 1024 });
+    : args, { cwd: workspace, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 30_000, maxBuffer: 64 * 1024 });
 }
 
 function hasMarker(result, marker) {
@@ -42,7 +48,7 @@ function pass() {
 }
 
 try {
-  if (process.argv.length !== 2 || process.platform !== "linux" || process.getuid() !== 1000 || homedir() !== "/home/node") {
+  if ((process.argv.length !== 2 && !(process.argv.length === 3 && managed)) || process.platform !== "linux" || process.getuid() !== 1000 || homedir() !== "/home/node") {
     throw new Error("run without arguments inside the Linux Dev Container as node (UID 1000, HOME=/home/node)");
   }
 
@@ -59,36 +65,36 @@ try {
   stage = stages[0];
   requireSuccess(run(`
     require("node:fs").writeFileSync(process.argv[1], ${JSON.stringify(baseline)});
-    console.log("JEVAULT_OUTSIDE_CONTROL_OK");
+    report("JEVAULT_OUTSIDE_CONTROL_OK");
   `, outsideFile), "JEVAULT_OUTSIDE_CONTROL_OK");
   if (readFileSync(outsideFile, "utf8") !== baseline) throw new Error("direct node write did not update the outside fixture");
   pass();
 
   stage = stages[1];
-  requireSuccess(run('console.log("JEVAULT_SIMPLE_OK");', undefined, true), "JEVAULT_SIMPLE_OK");
+  requireSuccess(run('report("JEVAULT_SIMPLE_OK");', undefined, true), "JEVAULT_SIMPLE_OK");
   pass();
 
   stage = stages[2];
   requireSuccess(run(`
     require("node:fs").writeFileSync(process.argv[1], ${JSON.stringify(workspaceContent)});
-    console.log("JEVAULT_WORKSPACE_OK");
+    report("JEVAULT_WORKSPACE_OK");
   `, insideFile, true), "JEVAULT_WORKSPACE_OK");
   if (readFileSync(insideFile, "utf8") !== workspaceContent) throw new Error("sandbox write did not update the workspace fixture");
   pass();
 
   stage = stages[3];
   const denied = run(`
-    console.log("JEVAULT_OUTSIDE_CHILD_STARTED");
+    report("JEVAULT_OUTSIDE_CHILD_STARTED");
     try {
       require("node:fs").writeFileSync(process.argv[1], "synthetic unexpected outside write\\n");
-      console.log("JEVAULT_OUTSIDE_WRITE_SUCCEEDED");
+      report("JEVAULT_OUTSIDE_WRITE_SUCCEEDED");
       process.exitCode = 24;
     } catch (error) {
       if (["EACCES", "EPERM", "EROFS"].includes(error.code)) {
-        console.log("JEVAULT_OUTSIDE_DENIED:" + error.code);
+        report("JEVAULT_OUTSIDE_DENIED:" + error.code);
         process.exitCode = 23;
       } else {
-        console.log("JEVAULT_OUTSIDE_UNEXPECTED_ERROR");
+        report("JEVAULT_OUTSIDE_UNEXPECTED_ERROR");
         process.exitCode = 25;
       }
     }
