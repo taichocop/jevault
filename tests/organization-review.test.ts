@@ -50,10 +50,10 @@ function result(notes = [analysisNote()]): FolderOrganizerAnalysisResult {
   return Object.freeze({ status: "completed", results: Object.freeze(notes),
     progress: Object.freeze({ total: notes.length, processed: notes.length, failed: notes.filter(n => n.status === "failed").length }) });
 }
-function harness(notes = [analysisNote()], current?: ExistingTagSnapshot[]) {
+function harness(notes = [analysisNote()], current?: ExistingTagSnapshot[], universe?: { folders: string[]; tags: string[] }) {
   const analysis = result(notes);
-  const folders = ["Dest", "Other", "Manual", "Inbox"];
-  const tags = ["#Ruby", "#ruby", "#nested/tag", "#manual"];
+  const folders = universe?.folders ?? ["Dest", "Other", "Manual", "Inbox"];
+  const tags = universe?.tags ?? ["#Ruby", "#ruby", "#nested/tag", "#manual"];
   const snapshots = current ?? notes.map(() => ({ status: "available" as const, names: ["#Ruby"] }));
   const session = new OrganizationReviewSession(analysis, folders, tags, snapshots);
   const owner = new AbortController();
@@ -65,7 +65,9 @@ function harness(notes = [analysisNote()], current?: ExistingTagSnapshot[]) {
   const radios = () => all().filter(e => e.type === "radio");
   const checkboxes = () => all().filter(e => e.type === "checkbox");
   const selects = () => all().filter(e => e.tag === "select");
-  return { analysis, folders, tags, snapshots, session, owner, modal, all, texts, button, radios, checkboxes, selects };
+  const section = (kind: "folder" | "tags") => all().filter(e => e.tag === "fieldset")[kind === "folder" ? 0 : 1];
+  const scope = (modal as unknown as Modal).scope;
+  return { analysis, folders, tags, snapshots, session, owner, modal, all, texts, button, radios, checkboxes, selects, section, scope };
 }
 afterEach(() => vi.restoreAllMocks());
 
@@ -309,5 +311,191 @@ describe("Review documentation (#101 tests 85–87)", () => {
     expect(doc).toContain("Review results"); expect(doc).toContain("Finish review"); expect(doc).toContain("Confirm Apply");
     expect(doc).toMatch(/Secret/); expect(doc).toMatch(/body/); expect(doc).toMatch(/TypeSafe/);
     expect(doc).toMatch(/mutation authority|modify your Vault/);
+  });
+});
+
+describe("Review section number shortcuts (#139)", () => {
+  it("shows section focus instructions and stable numbers including unavailable positions", () => {
+    const h = harness();
+    const labels = (kind: "folder" | "tags") => h.section(kind).all().filter(e => e.tag === "label")
+      .map(e => e.children.filter(c => c.tag === "span").map(c => c.text).join(""));
+    expect(labels("folder").slice(0, 4)).toEqual([
+      "[1] Keep current folder", "[2] Dest — 99.0%", "[3] Other — 1.0%", "[4] Stale — 0.0% — unavailable",
+    ]);
+    expect(labels("tags").slice(0, 3)).toEqual([
+      "[1] #Ruby — 99.0%", "[2] #nested/tag — 80.0%", "[3] #Stale — 10.0% — unavailable",
+    ]);
+    for (const kind of ["folder", "tags"] as const) {
+      const section = h.section(kind);
+      expect(section.attr?.tabindex).toBe("0");
+      expect(section.all().find(e => (e as ReviewElement).attr?.id === section.attr?.["aria-describedby"])?.text)
+        .toContain(kind === "folder" ? "press 1–9 to select" : "press 1–9 to toggle");
+    }
+    expect(h.session.getDraft(0)).toEqual({ folder: { kind: "unreviewed" }, tags: { kind: "unreviewed" } });
+  });
+  it.each([["1", { kind: "keep-current" }], ["2", { kind: "existing-folder", path: "Dest" }],
+    ["3", { kind: "existing-folder", path: "Other" }]] as const)("Folder %s matches mouse through the same selection boundary", (key, intent) => {
+    const keyboard = harness(), mouse = harness();
+    const select = vi.spyOn(keyboard.session, "selectFolder");
+    keyboard.section("folder").focus(); expect(keyboard.scope.press(key)).toBe(false);
+    mouse.radios()[Number(key) - 1].change();
+    expect(select).toHaveBeenCalledExactlyOnceWith(0, intent);
+    expect(keyboard.session.getDraft(0)).toEqual(mouse.session.getDraft(0));
+    expect(keyboard.radios().filter(r => r.checked)).toHaveLength(1);
+    expect(keyboard.section("folder").ownerDocument.activeElement).toBe(keyboard.section("folder"));
+    expect(keyboard.session.getResult()).toBeUndefined();
+  });
+  it("toggles exact Tags in sequence, preserving multiple selections and matching checkbox drafts", () => {
+    const note = analysisNote();
+    if (note.tags.status !== "success") throw new Error("Synthetic fixture");
+    const notes = [{ ...note, tags: { ...note.tags, value: { ...note.tags.value, suggestions: [
+      ...note.tags.value.suggestions.slice(0, 2), { tagId: "4", tagName: "#manual", choice: "match" as const, matchProbability: 0.5 },
+    ] } } }];
+    const keyboard = harness(notes), mouse = harness(notes);
+    const select = vi.spyOn(keyboard.session, "selectTag");
+    keyboard.section("tags").focus();
+    for (const [key, checked, names] of [["1", true, ["#Ruby"]], ["3", true, ["#Ruby", "#manual"]],
+      ["1", false, ["#manual"]], ["3", false, []]] as const) {
+      expect(keyboard.scope.press(key)).toBe(false); mouse.checkboxes()[Number(key) - 1].change(checked);
+      expect(keyboard.session.getDraft(0)?.tags).toEqual({ kind: "selected", names });
+      expect(keyboard.session.getDraft(0)).toEqual(mouse.session.getDraft(0));
+      expect(keyboard.checkboxes().map(c => c.checked)).toEqual(mouse.checkboxes().map(c => c.checked));
+      expect(keyboard.section("tags").ownerDocument.activeElement).toBe(keyboard.section("tags"));
+    }
+    expect(select.mock.calls).toEqual([[0, "#Ruby", true], [0, "#manual", true], [0, "#Ruby", false], [0, "#manual", false]]);
+    expect(keyboard.session.getDraft(0)?.folder.kind).toBe("unreviewed");
+    expect(keyboard.session.getResult()).toBeUndefined();
+  });
+  it("uses the selected exact spelling and existing identity rules after mouse/select changes", () => {
+    const h = harness(); h.selects()[1].change("#ruby"); h.section("tags").focus(); h.scope.press("1");
+    expect(h.session.getDraft(0)?.tags).toEqual({ kind: "selected", names: [] });
+    h.scope.press("1"); expect(h.session.getDraft(0)?.tags).toEqual({ kind: "selected", names: ["#Ruby"] });
+    h.checkboxes()[0].change(false); h.section("tags").focus(); h.scope.press("1");
+    expect(h.session.getDraft(0)?.tags).toEqual({ kind: "selected", names: ["#Ruby"] });
+  });
+  it("never routes the same key to both sections, or routes from outside section focus", () => {
+    const h = harness(), folder = vi.spyOn(h.session, "selectFolder"), tag = vi.spyOn(h.session, "selectTag");
+    expect(h.scope.press("1")).toBeUndefined();
+    h.button("Finish review").focus(); expect(h.scope.press("1")).toBeUndefined();
+    expect(folder).not.toHaveBeenCalled(); expect(tag).not.toHaveBeenCalled();
+    h.section("folder").focus(); h.scope.press("1");
+    expect(folder).toHaveBeenCalledOnce(); expect(tag).not.toHaveBeenCalled();
+    h.section("tags").focus(); expect(h.scope.press("4")).toBeUndefined();
+    expect(folder).toHaveBeenCalledOnce(); expect(tag).not.toHaveBeenCalled();
+    h.section("tags").focus(); h.scope.press("1");
+    expect(folder).toHaveBeenCalledOnce(); expect(tag).toHaveBeenCalledOnce();
+    expect(h.session.getDraft(0)).toEqual({ folder: { kind: "keep-current" }, tags: { kind: "selected", names: ["#Ruby"] } });
+  });
+  it.each(["folder", "tags"] as const)("unavailable %s consumes no key and never retargets to an available choice", kind => {
+    const h = harness(); h.section(kind).focus();
+    const baseline = h.session.getDraft(0);
+    const folder = vi.spyOn(h.session, "selectFolder"), tag = vi.spyOn(h.session, "selectTag");
+    expect(h.scope.press(kind === "folder" ? "4" : "3")).toBeUndefined();
+    expect(h.session.getDraft(0)).toBe(baseline); expect(folder).not.toHaveBeenCalled(); expect(tag).not.toHaveBeenCalled();
+  });
+  it.each(["altKey", "ctrlKey", "metaKey", "shiftKey", "repeat", "isComposing"])("rejects %s for both sections without consuming the key", flag => {
+    const h = harness(), baseline = h.session.getDraft(0);
+    for (const kind of ["folder", "tags"] as const) {
+      h.section(kind).focus(); expect(h.scope.press("1", { [flag]: true })).toBeUndefined();
+      expect(h.session.getDraft(0)).toBe(baseline);
+    }
+  });
+  it.each(["input", "textarea", "select", "contenteditable", "textbox"])("does not interfere with %s editing in either section", kind => {
+    const h = harness(), baseline = h.session.getDraft(0);
+    for (const section of ["folder", "tags"] as const) {
+      const input = h.section(section).createEl(kind === "contenteditable" || kind === "textbox" ? "div" : kind);
+      input.editable = true; input.focus(); expect(h.scope.press("1")).toBeUndefined();
+      // contenteditableはsection自身/祖先から継承する場合も拒否する。
+      h.section(section).editable = true; h.section(section).focus(); expect(h.scope.press("1")).toBeUndefined();
+      expect(h.session.getDraft(0)).toBe(baseline);
+    }
+  });
+  it("ignores numbers on a focused radio or checkbox as well as dropdowns", () => {
+    const h = harness(), baseline = h.session.getDraft(0);
+    for (const control of [...h.radios(), ...h.checkboxes(), ...h.selects()]) {
+      control.focus(); expect(h.scope.press("1")).toBeUndefined(); expect(h.session.getDraft(0)).toBe(baseline);
+    }
+  });
+  it("ignores repeat after a real toggle instead of turning the Tag back off", () => {
+    const h = harness(); h.section("tags").focus(); h.scope.press("1"); h.scope.press("1", { repeat: true });
+    expect(h.session.getDraft(0)?.tags).toEqual({ kind: "selected", names: ["#Ruby"] });
+  });
+  it.each(["0", "5", "9", "Enter", "a"])("ignores unmapped key %s without consuming it", key => {
+    const h = harness(), baseline = h.session.getDraft(0);
+    for (const kind of ["folder", "tags"] as const) {
+      h.section(kind).focus(); expect(h.scope.press(key)).toBeUndefined(); expect(h.session.getDraft(0)).toBe(baseline);
+    }
+    expect(h.session.getResult()).toBeUndefined();
+  });
+  it("scopes shortcuts to the active Modal, including before open and while covered", () => {
+    const h = harness(), baseline = h.session.getDraft(0);
+    h.scope.active = false;
+    for (const kind of ["folder", "tags"] as const) {
+      h.section(kind).focus(); h.scope.press("1"); expect(h.session.getDraft(0)).toBe(baseline);
+    }
+    const unopened = new OrganizationReviewModal({} as App, h.session, h.owner.signal);
+    (unopened as unknown as Modal).scope.press("1"); expect(h.session.getDraft(0)).toBe(baseline);
+    h.scope.active = true; h.section("folder").focus(); h.scope.press("1");
+    expect(h.session.getDraft(0)?.folder.kind).toBe("keep-current");
+  });
+  it("rejects saved shortcut callbacks after rerender, Next, Previous and Finish", () => {
+    const h = harness([analysisNote(), analysisNote("Inbox/B.md")]);
+    const oldSection = h.section("folder"), old = h.scope.handlers.get("1")!;
+    h.section("folder").focus(); h.scope.press("2");
+    h.section("tags").focus(); expect(old({ key: "1" } as KeyboardEvent)).toBeUndefined();
+    expect(h.session.getDraft(0)?.tags.kind).toBe("unreviewed");
+    const beforeNext = h.scope.handlers.get("1")!;
+    h.button("Next").click(); h.section("folder").focus(); beforeNext({ key: "1" } as KeyboardEvent);
+    expect(h.session.getDraft(1)?.folder.kind).toBe("unreviewed");
+    oldSection.focus(); h.scope.press("1"); expect(h.session.getDraft(1)?.folder.kind).toBe("unreviewed");
+    h.section("folder").focus(); h.scope.press("1"); const beforePrevious = h.scope.handlers.get("2")!;
+    h.button("Previous").click(); h.section("tags").focus(); beforePrevious({ key: "2" } as KeyboardEvent);
+    expect(h.session.getDraft(0)?.tags.kind).toBe("unreviewed");
+    h.scope.press("2"); expect(h.session.getDraft(0)?.tags).toEqual({ kind: "selected", names: ["#nested/tag"] });
+    const beforeFinish = h.scope.handlers.get("1")!;
+    h.button("Finish review").click(); const completed = h.session.getResult();
+    expect(h.scope.handlers.size).toBe(1); expect(h.scope.handlers.has("Escape")).toBe(true);
+    beforeFinish({ key: "1" } as KeyboardEvent); h.scope.press("1");
+    expect(h.session.getResult()).toBe(completed);
+  });
+  it.each(["close", "onClose", "unload", "delayed-close", "session-dispose"])("rejects keys and saved callbacks after %s", action => {
+    const h = harness(); h.section("tags").focus(); const old = h.scope.handlers.get("1")!;
+    if (action === "delayed-close") vi.spyOn(Modal.prototype, "close").mockImplementation(() => {});
+    if (action === "session-dispose") h.session.dispose();
+    else if (action === "onClose") h.modal.onClose(); else if (action === "unload") h.owner.abort(); else h.modal.close();
+    expect(() => old({ key: "1" } as KeyboardEvent)).not.toThrow(); h.scope.press("1");
+    expect(h.session.getDraft(0)).toBeUndefined(); expect(h.session.getResult()).toBeUndefined();
+    if (action !== "session-dispose") expect(h.scope.handlers.size).toBe(1);
+  });
+  it("keeps numbers in order through nine and leaves further candidates and dropdowns usable", () => {
+    const base = analysisNote();
+    if (base.folder.status !== "success" || base.tags.status !== "success") throw new Error("Synthetic fixture");
+    const folders = Array.from({ length: 11 }, (_, i) => `Folder${i + 1}`);
+    const tags = Array.from({ length: 11 }, (_, i) => `#tag${i + 1}`);
+    const note = { ...base, folder: { ...base.folder, value: { ...base.folder.value,
+      result: { candidates: folders.map(path => ({ path, probability: 0.1 })) } } },
+    tags: { ...base.tags, value: { ...base.tags.value,
+      suggestions: tags.map((tagName, i) => ({ tagId: String(i), tagName, choice: "match" as const, matchProbability: 0.1 })) } } };
+    const h = harness([note], undefined, { folders, tags });
+    expect(h.radios()).toHaveLength(12); expect(h.checkboxes()).toHaveLength(11);
+    for (const kind of ["folder", "tags"] as const) {
+      expect(h.section(kind).all().filter(e => /^\[\d\] /.test(e.text)).map(e => e.text))
+        .toEqual(Array.from({ length: 9 }, (_, i) => `[${i + 1}] `));
+    }
+    h.section("folder").focus(); h.scope.press("9");
+    expect(h.session.getDraft(0)?.folder).toEqual({ kind: "existing-folder", path: "Folder8" });
+    h.section("tags").focus(); h.scope.press("9");
+    expect(h.session.getDraft(0)?.tags).toEqual({ kind: "selected", names: ["#tag9"] });
+    h.radios()[11].change(); h.checkboxes()[10].change();
+    h.selects()[0].change("Folder10"); h.selects()[1].change("#tag10");
+    expect(h.session.getDraft(0)).toEqual({ folder: { kind: "existing-folder", path: "Folder10" },
+      tags: { kind: "selected", names: ["#tag9", "#tag11", "#tag10"] } });
+    expect(h.scope.handlers.size).toBe(10); expect(h.scope.handlers.has("0")).toBe(false);
+  });
+  it("creates no shortcut controls for an unavailable Note and no stale mapping from the previous Note", () => {
+    const h = harness([analysisNote(), analysisNote("Inbox/Failed.md", "failed")]);
+    const stale = h.scope.handlers.get("1")!; h.button("Next").click(); stale({ key: "1" } as KeyboardEvent);
+    expect(h.scope.handlers.size).toBe(1); expect(h.session.getDraft(1)).toBeUndefined();
+    expect(h.session.getDraft(0)?.folder.kind).toBe("unreviewed");
   });
 });

@@ -21,7 +21,7 @@ async function flush() { for (let i = 0; i < 24; i++) await Promise.resolve(); }
 function all(modal: ObsidianModal) { return (modal.contentEl as unknown as Element).all(); }
 function button(modal: ObsidianModal, text: string) { return all(modal).find(e => e.tag === "button" && e.text === text)!; }
 function text(modal: ObsidianModal) { return all(modal).map(e => e.text).filter(Boolean).join("\n"); }
-function harness(count = 1, unavailable = false) {
+function harness(count = 1, unavailable = false, shortcuts = false) {
   const files = Array.from({ length: count }, (_, index) => Object.assign(new TFile(`Inbox/${index}.md`),
     { stat: { ctime: 1, mtime: 2, size: 100 } }) as ObsidianFile);
   const dest = new TFolder("Dest"), inbox = new TFolder("Inbox");
@@ -46,8 +46,10 @@ function harness(count = 1, unavailable = false) {
     const source = new NoteSource(file);
     return { source, snapshot: Object.freeze({ path: source.path, mtime: file.stat.mtime, size: file.stat.size }),
       status: unavailable && i === 0 ? "failed" : "success",
-      folder: { status: "not-run", reason: "disabled" },
-      tags: { status: "success", value: { status: "success", source, noteTitle: "Synthetic", suggestions: [] } } };
+      folder: shortcuts ? { status: "success", value: { status: "success", source, noteTitle: "Synthetic",
+        result: { candidates: [{ path: "Dest", probability: 1 }] } } } : { status: "not-run", reason: "disabled" },
+      tags: { status: "success", value: { status: "success", source, noteTitle: "Synthetic", suggestions: shortcuts
+        ? [{ tagId: "1", tagName: "#reviewed", choice: "match", matchProbability: 1 }] : [] } } };
   });
   const review = new OrganizationReviewSession({ status: "completed", results: notes,
     progress: { total: count, processed: count, failed: unavailable ? 1 : 0 } }, ["Dest", "Inbox"], ["#reviewed", "#keep"],
@@ -88,6 +90,36 @@ function expectReviewReleased(modal: OrganizationReviewModal): void {
 afterEach(() => vi.restoreAllMocks());
 
 describe("#111 real UI -> original confirmation -> production service", () => {
+  it("#139 number selection and Finish make zero mutations; only separate Confirm Apply authorizes the exact intent", async () => {
+    const h = harness(1, false, true), scope = (h.reviewModal as unknown as Modal).scope;
+    const section = (index: number) => all(h.reviewModal).filter(e => e.tag === "fieldset")[index];
+    const noAuthority = () => {
+      expect(h.confirm).not.toHaveBeenCalled(); expect(h.apply).not.toHaveBeenCalled();
+      expect(h.manager.renameFile).not.toHaveBeenCalled(); expect(h.manager.processFrontMatter).not.toHaveBeenCalled();
+      expect(h.forbidden).not.toHaveBeenCalled();
+    };
+    section(0).focus(); scope.press("2"); section(1).focus(); scope.press("1");
+    const stale = scope.handlers.get("1")!;
+    expect(h.review.getDraft(0)).toEqual({ folder: { kind: "existing-folder", path: "Dest" },
+      tags: { kind: "selected", names: ["#reviewed"] } });
+    expect(h.review.getResult()).toBeUndefined(); noAuthority();
+    expect(button(h.reviewModal, "Apply selected changes")).toBeUndefined();
+    expect(h.vault.getAllFolders).not.toHaveBeenCalled(); expect(h.vault.getAbstractFileByPath).not.toHaveBeenCalled();
+    button(h.reviewModal, "Finish review").click(); const exact = h.review.getResult()!;
+    stale({ key: "1" } as KeyboardEvent); scope.press("1"); noAuthority();
+    expect(exact.reviewed[0].source.path).toBe("Inbox/0.md");
+    expect(exact.reviewed[0].folder).toEqual({ kind: "existing-folder", path: "Dest" });
+    expect(exact.reviewed[0].selectedTags).toEqual(["#reviewed"]);
+    const modal = h.navigate(); noAuthority();
+    stale({ key: "1" } as KeyboardEvent); scope.press("1"); noAuthority();
+    expect(h.review.getResult()).toBe(exact);
+    expect(text(modal)).toContain("Inbox/0.md\nFolder: Dest\nTags: #reviewed");
+    button(modal, "Confirm Apply").click(); await flush();
+    expect(h.confirm).toHaveBeenCalledOnce(); expect(h.apply).toHaveBeenCalledOnce();
+    expect(h.manager.processFrontMatter).toHaveBeenCalledOnce();
+    expect(h.manager.renameFile).toHaveBeenCalledExactlyOnceWith(h.files[0], "Dest/0.md");
+    expect(h.fm[0].tags).toEqual(["keep", "reviewed"]); expect(h.forbidden).not.toHaveBeenCalled();
+  });
   it("Finish only exposes navigation; exact session/result survives one-owner transfer with no I/O", () => {
     const h = harness(2, true);
     expect(button(h.reviewModal, "Apply selected changes")).toBeUndefined();

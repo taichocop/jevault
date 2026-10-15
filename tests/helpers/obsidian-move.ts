@@ -50,12 +50,16 @@ export class Element {
 class Scope {
   active = false;
   handlers = new Map<string, (event: KeyboardEvent) => unknown>();
-  register(_modifiers: string[], key: string, handler: (event: KeyboardEvent) => unknown): void {
+  register(_modifiers: string[], key: string, handler: (event: KeyboardEvent) => unknown): (event: KeyboardEvent) => unknown {
     this.handlers.set(key, handler);
+    return handler;
   }
-  press(key: string, options: Partial<KeyboardEvent> = {}): void {
+  unregister(handler: (event: KeyboardEvent) => unknown): void {
+    for (const [key, registered] of this.handlers) if (registered === handler) this.handlers.delete(key);
+  }
+  press(key: string, options: Partial<KeyboardEvent> = {}): unknown {
     if (!this.active) return;
-    this.handlers.get(key)?.({ key, ...options } as KeyboardEvent);
+    return this.handlers.get(key)?.({ key, ...options } as KeyboardEvent);
   }
 }
 export class Modal {
