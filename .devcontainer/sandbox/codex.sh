@@ -20,5 +20,5 @@ exec codex \
   -c "default_permissions=\"$permission_profile\"" \
   -c 'features.network_proxy=true' \
   -c 'features.use_legacy_landlock=false' \
-  -c "permissions.$permission_profile={extends=\":workspace\",network={enabled=true,mode=\"full\",allow_local_binding=false,allow_upstream_proxy=false,enable_socks5=false,enable_socks5_udp=false,dangerously_allow_all_unix_sockets=false,dangerously_allow_non_loopback_proxy=false,domains=$network_domains,unix_sockets={}}}" \
+  -c "permissions.$permission_profile={extends=\":workspace\",filesystem={\"/workspaces/node_modules\"=\"write\"},network={enabled=true,mode=\"full\",allow_local_binding=false,allow_upstream_proxy=false,enable_socks5=false,enable_socks5_udp=false,dangerously_allow_all_unix_sockets=false,dangerously_allow_non_loopback_proxy=false,domains=$network_domains,unix_sockets={}}}" \
   "$@"

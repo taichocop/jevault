@@ -30,8 +30,9 @@ sh .devcontainer/sandbox/codex.sh
 ```
 
 It selects workspace-write through the built-in `:workspace` profile, on-request
-approval, Bubblewrap and Codex's managed network proxy with empty domain and
-Unix-socket allowlists. Each invocation uses a fresh permission-profile name so
+approval, an additional writable dependency root `/workspaces/node_modules`,
+Bubblewrap and Codex's managed network proxy with empty domain and Unix-socket
+allowlists. Each invocation uses a fresh permission-profile name so
 Codex's deep configuration merge cannot inherit entries from a saved same-name
 profile. Existing configuration and authentication files are not rewritten. The network mode `full` is not an all-destinations grant:
 proxy policy still rejects destinations. Direct local binding, upstream proxying
@@ -61,7 +62,8 @@ After owner approval, use the clean-clone prerequisites in
 workspace="$(pwd -P)"
 profile="$workspace/.devcontainer/sandbox/devcontainer.json"
 devcontainer up --workspace-folder "$workspace" --config "$profile"
-devcontainer exec --workspace-folder "$workspace" --config "$profile" npm ci
+devcontainer exec --workspace-folder "$workspace" --config "$profile" node .devcontainer/prepare-workspace.mjs
+devcontainer exec --workspace-folder "$workspace" --config "$profile" npm ci --prefix /workspaces
 devcontainer exec --workspace-folder "$workspace" --config "$profile" npm run verify
 devcontainer exec --workspace-folder "$workspace" --config "$profile" sh .devcontainer/sandbox/codex.sh sandbox -- npm run verify
 devcontainer exec --workspace-folder "$workspace" --config "$profile" node .devcontainer/check-sandbox.mjs
@@ -96,7 +98,9 @@ Start Codex through the wrapper and check the terminal approval UI with a
 synthetic outside fixture. Confirm both denial without modification and an
 explicitly approved write. The sandbox helper does not test approval or login.
 A storage sentinel does not prove real authentication continuity; verify login
-again after recreation. Never paste codes or authentication logs into chat.
+again after an explicitly owner-authorized recreation. Do not recreate or delete
+an authenticated environment as part of synthetic testing. Never paste codes or
+authentication logs into chat.
 
 Stop/resume/removal follow CONTRIBUTING.md with the sandbox config-file label:
 
@@ -109,8 +113,10 @@ devcontainer up --workspace-folder "$workspace" --config "$profile"
 ```
 
 Source persists in the selected clone. The two workspace-specific sandbox
-volumes retain dependencies and Codex state through recreation; npm ci replaces
-dependencies. Other container files disappear on removal. For permanent removal,
+volumes retain dependencies and Codex state through recreation. Dependencies
+live at `/workspaces/node_modules`, outside the source bind; the clone contains
+only a symlink. Mount checks run on create/start; `npm ci --prefix /workspaces`
+is explicit. Other container files disappear on removal. For permanent removal,
 capture only this selected container's Codex and dependency volume names using
 the CONTRIBUTING.md commands, then remove that container and those two volumes.
 Do not delete ordinary-profile volumes or use a global prune command.

@@ -4,6 +4,8 @@ Use a host terminal and the Dev Container CLI; VS Code is optional. The host
 manages Docker and container lifecycle. Development commands run in Linux.
 Ordinary development needs no GitHub write credential. GitHub publishing
 authentication is separate work under Issue #137.
+Codex authentication is optional for ordinary development; the existing
+[Node-only development workflow](README.md#development) remains available.
 
 ## Prerequisites and versions
 
@@ -16,8 +18,9 @@ docker version
 devcontainer --version
 ```
 
-The host CLI needs Node >=20; use a maintained Node version supported by
-`package.json`. The container uses these development tools:
+The host CLI needs Node >=20. For this guide, use a maintained release satisfying
+`package.json`: `^20.19.0 || ^22.13.0 || >=24.0.0`.
+The container uses these development tools:
 
 | Tool | Version / source |
 | --- | --- |
@@ -37,29 +40,64 @@ The fixed `node` UID/GID is 1000; native Linux bind
 mounts must already be writable by that user. Automatic UID rewriting is
 disabled to keep named-volume ownership consistent.
 
+The commands below require a POSIX shell. The validated combination is a macOS
+host with Docker Desktop running a Linux arm64 container. Native Linux hosts,
+Windows hosts, amd64 containers and other runtimes are not yet verified.
+Windows users need a compatible POSIX shell with access to Docker and the CLI;
+the examples are not PowerShell commands. Run the same acceptance gates on any
+unverified combination before relying on it.
+
 ## Create and execute (host terminal)
 
 Use a standalone clone with its own `.git` directory. Linked worktrees contain
 external Git paths; do not mount a host parent directory to make them work.
 Choose a new destination; leave existing checkouts and host dependencies alone.
+Use a separate clone for each profile. Avoid concurrent lifecycle operations
+and verification against the same source bind.
+
+Before merge, replace only the clone command text below with
+`git clone --branch codex/136-cli-devcontainer https://github.com/taichocop/jevault.git jevault-container`
+while keeping its trailing `&&`. Record the printed `git rev-parse HEAD` for
+the PR revision being reviewed.
+The chained commands stop on failure, including an already-existing clone path.
 
 ```sh
-git clone https://github.com/taichocop/jevault.git jevault-container
-cd jevault-container
-# Before merge, explicitly check out the Issue #136 PR branch here.
-test -d .git
-workspace="$(pwd -P)"
-devcontainer up --workspace-folder "$workspace"
-devcontainer exec --workspace-folder "$workspace" sh -c 'id; node --version; npm --version; git --version; codex --version'
-devcontainer exec --workspace-folder "$workspace" npm ci
-devcontainer exec --workspace-folder "$workspace" npm run verify
+git clone https://github.com/taichocop/jevault.git jevault-container &&
+cd jevault-container &&
+test -d .git &&
+test -f .devcontainer/devcontainer.json &&
+git rev-parse HEAD &&
+workspace="$(pwd -P)" &&
+devcontainer up --workspace-folder "$workspace" &&
+devcontainer exec --workspace-folder "$workspace" sh -c 'id && node --version && npm --version && git --version && codex --version' &&
+devcontainer exec --workspace-folder "$workspace" node .devcontainer/prepare-workspace.mjs &&
+devcontainer exec --workspace-folder "$workspace" npm ci --prefix /workspaces &&
+devcontainer exec --workspace-folder "$workspace" npm run verify &&
 devcontainer exec --workspace-folder "$workspace" bash
 ```
 
-`up` runs `npm ci` as `node` on each new container. `exec` runs as `node`, with
-`HOME=/home/node` and workspace `/workspaces/jevault`. Run `exit` to leave the
-shell. Source edits, including generated `main.js`, reach the selected host
+`up` checks actual mounts and creates a dependency symlink as `node`; it does not
+install dependencies automatically. Run `npm ci --prefix /workspaces` explicitly
+before first use. `exec` runs as `node`, with `HOME=/home/node` and workspace
+`/workspaces/jevault`. Run `exit` to leave the shell.
+Source edits, including generated `main.js`, reach the selected host
 clone. Keep real Vaults, notes and secret files out of this clone.
+
+The dependency volume is a sibling of the source bind. Some Docker Desktop
+runtimes can lose a nested `node_modules` mount after startup while Docker
+inspection still lists it. The lifecycle check requires actual mountpoints in
+`/proc/self/mountinfo` and refuses to replace any existing host dependency
+directory or unexpected link. Use a fresh clone when migrating from the old
+nested layout. Do not delete an existing dependency directory automatically.
+A host `npm ci` is unsupported in this container clone: its link targets a
+container path. Use a separate clone for the existing host development flow.
+The preparation command copies `package.json`, `package-lock.json` and the
+repository's non-secret `.npmrc` to `/workspaces`. This preserves the committed
+`legacy-peer-deps=true` install policy. Never put credentials in that file.
+Run preparation again after dependency or npm policy changes, then use
+`npm ci --prefix /workspaces` so npm installs into the volume. Plain `npm ci`
+in the source directory removes the symlink and must not be used in this clone.
+Run `npm run verify` in `/workspaces/jevault` as usual.
 
 ## Codex startup, sandbox and first login
 
@@ -137,7 +175,9 @@ devcontainer up --workspace-folder "$workspace"
 devcontainer exec --workspace-folder "$workspace" git status --short
 ```
 
-Rebuild/recreate only this workspace's container (volumes remain):
+Rebuild/recreate only an unauthenticated test container (volumes remain). After
+owner login, stop/resume is the default; do not recreate or delete it without
+the owner's explicit authorization:
 
 ```sh
 devcontainer up --workspace-folder "$workspace" --remove-existing-container --build-no-cache
@@ -158,7 +198,8 @@ as above. `shutdownAction: none` keeps lifecycle under explicit host control.
 | Location | Storage / recreation behavior |
 | --- | --- |
 | `/workspaces/jevault` | Bind mount of only the selected clone; source persists on host |
-| `/workspaces/jevault/node_modules` | Workspace-specific named volume; masks host dependencies; `npm ci` replaces container dependencies on recreation |
+| `/workspaces/node_modules` | Workspace-specific named volume outside the source bind; retained on stop/recreation; explicit `npm ci --prefix /workspaces` replaces dependencies |
+| `/workspaces/jevault/node_modules` | Symlink to `/workspaces/node_modules`; host clone contains only the link |
 | `/home/node/.codex` | Workspace-specific named volume, initially mode 0700; Codex auth/config/history/logs persist |
 | `/home/node/.npm`, other container files | Container writable layer; survives stop/resume, disappears on removal |
 | GitHub credentials | Not supplied; `gh` is not installed |
@@ -174,14 +215,14 @@ select exactly one container as above and capture only its two volume names:
 
 ```sh
 codex_volume="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/home/node/.codex"}}{{.Name}}{{end}}{{end}}' "$container_id")"
-modules_volume="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/workspaces/jevault/node_modules"}}{{.Name}}{{end}}{{end}}' "$container_id")"
+modules_volume="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/workspaces/node_modules"}}{{.Name}}{{end}}{{end}}' "$container_id")"
 docker stop "$container_id"
 docker rm "$container_id"
 docker volume rm "$codex_volume" "$modules_volume"
 ```
 
-Review the selected names before deleting. This leaves the host source and host
-`node_modules` untouched. To sign out without deleting history, run
+Review the selected names before deleting. This leaves the host source and its
+dependency link intact. To sign out without deleting history, run
 `devcontainer exec --workspace-folder "$workspace" codex logout`. Deleting a
 local volume is not account-side revocation or guaranteed secure erasure of
 Docker backups. Never use `docker system prune` for this workflow.
@@ -202,6 +243,11 @@ The build context is only `.devcontainer`, with no source/auth `COPY`. The
 container process has network access for installations and Codex login/model
 requests; commands launched by Codex retain its sandbox/approval controls.
 Existing personal Codex configuration is not imported or modified.
+After login, ordinary Linux processes running as UID 1000, including dependency
+install scripts, can read the same UID's authentication files. Only install
+trusted dependencies; the mount check and Codex command sandbox do not isolate
+those ordinary processes. Synthetic probes never establish real login, model
+communication or terminal approval UI behavior.
 Docker isolation and mode 0700 do not hide credentials from arbitrary code
 running as the same user, container/host administrators or Docker access.
 The Codex process may send selected project content to OpenAI as part of use.

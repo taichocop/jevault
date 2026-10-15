@@ -11,7 +11,7 @@
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/jevault,type=bind",
   "workspaceFolder": "/workspaces/jevault",
   "mounts": [
-    "source=jevault-${devcontainerId}-sandbox-node-modules,target=/workspaces/jevault/node_modules,type=volume",
+    "source=jevault-${devcontainerId}-sandbox-node-modules,target=/workspaces/node_modules,type=volume",
     "source=jevault-${devcontainerId}-sandbox-codex,target=/home/node/.codex,type=volume"
   ],
   "runArgs": [
@@ -19,6 +19,7 @@
     "--security-opt=no-new-privileges=true",
     "--security-opt=seccomp=unconfined"
   ],
-  "postCreateCommand": "npm ci",
-  "shutdownAction": "none"
+  "postCreateCommand": "node .devcontainer/prepare-workspace.mjs",
+  "shutdownAction": "none",
+  "postStartCommand": "node .devcontainer/prepare-workspace.mjs"
 }

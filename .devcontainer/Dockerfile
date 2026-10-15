@@ -10,7 +10,7 @@ RUN npm install --global @openai/codex@0.162.1 \
     && npm cache clean --force
 
 # volume初回作成時に非root所有権を引き継ぎ、ホストの依存や認証を共有しない。
-RUN mkdir -p /workspaces/jevault/node_modules /home/node/.codex \
+RUN mkdir -p /workspaces/jevault /workspaces/node_modules /home/node/.codex \
     && chown -R node:node /workspaces /home/node/.codex \
     && chmod 700 /home/node/.codex
 

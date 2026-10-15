@@ -32,7 +32,7 @@ describe("Dev Container boundaries", () => {
     expect(config.workspaceMount).toBe("source=${localWorkspaceFolder},target=/workspaces/jevault,type=bind");
     expect(config.workspaceFolder).toBe("/workspaces/jevault");
     expect(config.mounts).toEqual([
-      "source=jevault-${devcontainerId}-node-modules,target=/workspaces/jevault/node_modules,type=volume",
+      "source=jevault-${devcontainerId}-node-modules,target=/workspaces/node_modules,type=volume",
       "source=jevault-${devcontainerId}-codex,target=/home/node/.codex,type=volume",
     ]);
     expect(config.build).toEqual({ dockerfile: "Dockerfile", context: "." });
@@ -53,8 +53,9 @@ describe("Dev Container boundaries", () => {
     expect(dockerfile).not.toMatch(/danger-full-access|bypass-approvals|sudo|TOKEN|API_KEY|auth\.json/);
   });
 
-  it("installs dependencies on recreation without changing product engine support", () => {
-    expect(config.postCreateCommand).toBe("npm ci");
+  it("validates mounts without automatically reinstalling dependencies or changing engine support", () => {
+    expect(config.postCreateCommand).toBe("node .devcontainer/prepare-workspace.mjs");
+    expect(config.postStartCommand).toBe(config.postCreateCommand);
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
     expect(pkg.engines.node).toBe("^20.19.0 || ^22.13.0 || >=24.0.0");
     expect({ ...pkg.dependencies, ...pkg.devDependencies }).not.toHaveProperty("@openai/codex");
@@ -76,7 +77,7 @@ describe("Dev Container boundaries", () => {
 
   it("does not share ordinary-container state or add implicit privileged setup", () => {
     expect(sandboxConfig.mounts).toEqual([
-      "source=jevault-${devcontainerId}-sandbox-node-modules,target=/workspaces/jevault/node_modules,type=volume",
+      "source=jevault-${devcontainerId}-sandbox-node-modules,target=/workspaces/node_modules,type=volume",
       "source=jevault-${devcontainerId}-sandbox-codex,target=/home/node/.codex,type=volume",
     ]);
     // 別profileへ認証状態を引き継がず、許可した3つの差分以外の権限経路を閉じる。
@@ -103,7 +104,7 @@ describe("Dev Container boundaries", () => {
         expect(profile(args)).toMatch(/^jevault_[a-f0-9]{32}$/);
         expect(args).toContain('features.network_proxy=true');
         expect(args).toContain('features.use_legacy_landlock=false');
-        expect(args).toContain(`permissions.${profile(args)}={extends=":workspace",network={enabled=true,mode="full",allow_local_binding=false,allow_upstream_proxy=false,enable_socks5=false,enable_socks5_udp=false,dangerously_allow_all_unix_sockets=false,dangerously_allow_non_loopback_proxy=false,domains={},unix_sockets={}}}`);
+        expect(args).toContain(`permissions.${profile(args)}={extends=":workspace",filesystem={"/workspaces/node_modules"="write"},network={enabled=true,mode="full",allow_local_binding=false,allow_upstream_proxy=false,enable_socks5=false,enable_socks5_udp=false,dangerously_allow_all_unix_sockets=false,dangerously_allow_non_loopback_proxy=false,domains={},unix_sockets={}}}`);
         expect(args.slice(-3)).toEqual(["sandbox", "--", "synthetic-command"]);
       }
       expect(profile(first)).not.toBe(profile(second));
