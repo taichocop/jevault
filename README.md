@@ -141,6 +141,9 @@ npm run lint
 
 For local development, run `npm run dev` to rebuild `main.js` when source files change.
 
+For terminal-only Linux container development, see [CONTRIBUTING.md](CONTRIBUTING.md)
+for the Dev Container CLI workflow, state policy and current sandbox limitation.
+
 ### TypeSafe integration spike
 
 Create a local `.env.1password` containing only a 1Password Secret Reference, never a plaintext credential. The file is ignored by Git.
