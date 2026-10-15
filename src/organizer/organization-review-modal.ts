@@ -1,4 +1,4 @@
-import { type App, Modal } from "obsidian";
+import { type App, type KeymapEventHandler, Modal } from "obsidian";
 
 import type { AnalysisPhaseResult } from "./organization-analysis-result";
 import { OrganizationReviewSession, type OrganizationReviewResult, type ReviewedFolderIntent } from "./organization-review-session";
@@ -19,6 +19,7 @@ export class OrganizationReviewModal extends Modal {
   private completedResult?: OrganizationReviewResult;
   private index = 0;
   private generation = 0;
+  private shortcuts: KeymapEventHandler[] = [];
   private readonly closeFromOwner = (): void => this.close();
 
   constructor(app: App, session: OrganizationReviewSession, private readonly ownerSignal: AbortSignal,
@@ -35,8 +36,15 @@ export class OrganizationReviewModal extends Modal {
     this.render();
   }
 
-  private render(): void {
+  private clearShortcuts(): void {
+    for (const handler of this.shortcuts) this.scope.unregister(handler);
+    this.shortcuts = [];
+  }
+
+  private render(focusSection?: "folder" | "tags"): void {
     if (!this.active()) return;
+    this.clearShortcuts();
+    let shortcutFocus: HTMLElement | undefined;
     const generation = ++this.generation;
     const index = this.index;
     // detached DOMや前Noteの遅延イベントを新しいdraft操作へ変換しない。
@@ -73,18 +81,28 @@ export class OrganizationReviewModal extends Modal {
       const draft = this.session!.getDraft(index);
       if (!draft) this.contentEl.createEl("p", { text: "Analysis unavailable for this note." });
       else {
-        const folder = this.contentEl.createEl("fieldset");
+        // 修飾キーを要求せず、section自身のfocusでFolder/Tagの番号衝突を避ける。
+        const folder = this.contentEl.createEl("fieldset", { cls: "jevault-review-shortcuts",
+          attr: { tabindex: "0", "aria-describedby": `${this.folderGroup}-folder-help` } });
         folder.createEl("legend", { text: "Folder" });
+        folder.createEl("p", { text: "Tab to this Folder section, then press 1–9 to select a numbered folder.",
+          attr: { id: `${this.folderGroup}-folder-help` } });
         folder.createEl("p", { text: `Current folder: ${this.session!.getCurrentFolder(index) || "Vault root"}` });
+        const folderShortcuts: Array<() => boolean> = [];
+        let folderNumber = 0;
         const folderChoice = (text: string, intent: ReviewedFolderIntent, available = true) => {
+          const number = ++folderNumber;
+          const select = () => editable() && available && this.session!.selectFolder(index, intent);
+          if (number <= 9) folderShortcuts.push(select);
           const label = folder.createEl("div").createEl("label");
           const radio = label.createEl("input", { type: "radio", attr: { name: this.folderGroup } });
           radio.disabled = !available;
           radio.checked = available && (intent.kind === "keep-current" ? draft.folder.kind === "keep-current"
             : draft.folder.kind === "existing-folder" && draft.folder.path === intent.path);
+          if (number <= 9) label.createEl("span", { text: `[${number}] ` });
           label.createEl("span", { text: `${text}${available ? "" : " — unavailable"}` });
           radio.addEventListener("change", () => {
-            if (editable() && available && radio.checked && this.session!.selectFolder(index, intent)) this.render();
+            if (radio.checked && select()) this.render();
           });
         };
         folderChoice("Keep current folder", { kind: "keep-current" });
@@ -109,26 +127,35 @@ export class OrganizationReviewModal extends Modal {
         folder.createEl("p", { text: draft.folder.kind === "unreviewed" ? "Choose a Folder intent for this note."
           : draft.folder.kind === "keep-current" ? "Selected: Keep current folder" : `Selected: ${draft.folder.path}` });
 
-        const tags = this.contentEl.createEl("fieldset");
+        const tags = this.contentEl.createEl("fieldset", { cls: "jevault-review-shortcuts",
+          attr: { tabindex: "0", "aria-describedby": `${this.folderGroup}-tags-help` } });
         tags.createEl("legend", { text: "Tags" });
+        tags.createEl("p", { text: "Tab to this Tags section, then press 1–9 to toggle numbered tags. Multiple tags can be selected.",
+          attr: { id: `${this.folderGroup}-tags-help` } });
         const current = this.session!.getCurrentTags(index);
         tags.createEl("p", { text: current?.status === "available"
           ? `Current tags (advisory): ${current.names.join(", ") || "None"}` : "Current tags are unknown (metadata unavailable)." });
-        const tagChoice = (name: string, text: string, available: boolean) => {
+        const tagShortcuts: Array<() => boolean> = [];
+        const tagChoice = (name: string, text: string, available: boolean, number?: number) => {
+          const select = (checked: boolean) => editable() && available && this.session!.selectTag(index, name, checked);
+          if (number !== undefined && number <= 9) {
+            tagShortcuts.push(() => select(!this.session!.isTagSelected(index, name)));
+          }
           const label = tags.createEl("div").createEl("label");
           const checkbox = label.createEl("input", { type: "checkbox" });
           checkbox.disabled = !available;
           checkbox.checked = available && this.session!.isTagSelected(index, name);
+          if (number !== undefined && number <= 9) label.createEl("span", { text: `[${number}] ` });
           label.createEl("span", { text: `${text}${available ? "" : " — unavailable"}` });
           checkbox.addEventListener("change", () => {
-            if (editable() && available && this.session!.selectTag(index, name, checkbox.checked)) this.render();
+            if (select(checkbox.checked)) this.render();
           });
         };
         const suggestions = note.tags.status === "success" ? note.tags.value.suggestions : [];
         if (note.tags.status === "success") {
           if (suggestions.length === 0) tags.createEl("p", { text: "No Tag suggestions." });
-          for (const suggestion of suggestions) tagChoice(suggestion.tagName,
-            `${suggestion.tagName} — ${(suggestion.matchProbability * 100).toFixed(1)}%`, this.session!.isTagAvailable(suggestion.tagName));
+          suggestions.forEach((suggestion, i) => tagChoice(suggestion.tagName,
+            `${suggestion.tagName} — ${(suggestion.matchProbability * 100).toFixed(1)}%`, this.session!.isTagAvailable(suggestion.tagName), i + 1));
         } else tags.createEl("p", { text: phaseFeedback(note.tags, "Tag") });
         // 追加候補の既存表記も維持する。現在Tagは表示だけで選択を捏造しない。
         const selected = draft.tags.kind === "selected" ? draft.tags.names : [];
@@ -145,6 +172,20 @@ export class OrganizationReviewModal extends Modal {
           if (editable() && this.session!.selectTag(index, tagSelect.value, true)) this.render();
         });
         tags.createEl("p", { text: `Selected tags: ${selected.join(", ") || "None"}` });
+        // Scopeは最前面Modalだけで有効。対象は描画世代と実際のsection focusで固定する。
+        for (let number = 1; number <= Math.max(folderShortcuts.length, tagShortcuts.length); number++) {
+          this.shortcuts.push(this.scope.register([], String(number), event => {
+            if (!editable() || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat || event.isComposing) return;
+            const active = this.contentEl.ownerDocument.activeElement;
+            if (active?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]')) return;
+            const section = active === folder ? "folder" : active === tags ? "tags" : undefined;
+            const select = section === "folder" ? folderShortcuts[number - 1] : section === "tags" ? tagShortcuts[number - 1] : undefined;
+            if (!select?.()) return;
+            this.render(section);
+            return false;
+          }));
+        }
+        shortcutFocus = focusSection === "folder" ? folder : focusSection === "tags" ? tags : undefined;
       }
     } else this.contentEl.createEl("p", { text: "No analysis notes are available for review." });
     const previous = this.contentEl.createEl("button", { text: "Previous" });
@@ -161,6 +202,7 @@ export class OrganizationReviewModal extends Modal {
     finish.disabled = !this.session!.canFinish();
     finish.addEventListener("click", () => { if (editable() && this.session!.finish()) this.render(); });
     this.closeButton("Cancel");
+    shortcutFocus?.focus();
   }
 
   private closeButton(text: string): void {
@@ -171,6 +213,7 @@ export class OrganizationReviewModal extends Modal {
     this.opened = false;
     this.disposed = true;
     this.generation++;
+    this.clearShortcuts();
     this.ownerSignal.removeEventListener("abort", this.closeFromOwner);
     // stale DOMはthisだけを保持し、handoff後の元session/resultを保持しない。
     const session = this.session;
