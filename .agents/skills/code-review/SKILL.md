@@ -16,7 +16,7 @@ Apply the **Code Review Rules** and **Safety and architecture** sections in `AGE
    git diff origin/main...HEAD --stat
    git diff origin/main...HEAD
    git diff --check
-   npm run verify-public-boundary
+   node scripts/verify-public-boundary.mjs
    ```
 
 ## 2. Mandatory Jevault Audit Checks

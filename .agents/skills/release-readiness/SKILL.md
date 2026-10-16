@@ -15,7 +15,7 @@ Each gate requires separate, explicit owner authorization. Earlier approval neve
 2. **PR & Merge Gate (`READY_TO_MERGE` → Human Merge)**: CI (`Validate and release`, `Public Repository Boundary`) and GitHub Codex Review must pass on the exact PR `HEAD` SHA.
 3. **Readiness Evaluation Gate (`RELEASE READINESS: GO` vs `NO-GO`)**:
    - Audited on the exact merged `main` commit SHA.
-   - Verify staged asset hashes (`node scripts/prepare-release.mjs <version>`), third-party licenses (`npm run verify:licenses`), public boundary (`npm run verify-public-boundary`), and GitHub CLI mock release lifecycle (`npm run test:release-workflow`).
+   - Verify staged asset hashes (`node scripts/prepare-release.mjs <version>`), third-party licenses (`npm run verify:licenses`), public boundary (`node scripts/verify-public-boundary.mjs`), and GitHub CLI mock release lifecycle (`npx vitest run tests/release-cli-lifecycle.test.ts tests/release-publication.test.ts`).
    - Explicitly classify every item in `RELEASE_CHECKLIST.md` as `VERIFIED`, `NOT VERIFIED`, `KNOWN LIMITATION` (only if separately accepted by the owner), or `BLOCKER`.
    - Any unexecuted native Obsidian check or unaccepted residual risk keeps formal status at **NO-GO** (or blocked pending owner disposition).
 4. **Tag Push & Release Publication Gate**:

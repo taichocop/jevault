@@ -48,7 +48,7 @@ Verify `git status --short` and `git rev-parse HEAD` before editing.
    git status --short
    git diff --check
    git diff --staged --check
-   npm run verify-public-boundary
+   node scripts/verify-public-boundary.mjs
    ```
 
 ## 4. Commit, PR, and GitHub Review Loop
