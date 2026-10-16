@@ -12,7 +12,7 @@ Follow `RELEASE_CHECKLIST.md` as the single source of truth for release criteria
 Each gate requires separate, explicit owner authorization. Earlier approval never implies later approval:
 
 1. **Release Preparation Gate**: Version bump (`manifest.json`, `package.json`, `versions.json` if needed), release notes, and local verification.
-2. **PR & Merge Gate (`READY_TO_MERGE` → Human Merge)**: CI (`Validate and release`, `Public Repository Boundary`) and GitHub Codex Review must pass on the exact PR `HEAD` SHA.
+2. **PR & Merge Gate (`READY_TO_MERGE` → Human Merge)**: Local verification, GitHub Actions CI (`Validate and release`, `Public repository boundary`), and either GitHub Codex Review (preferred) or an Independent Agent Review fallback (in a separate reviewer session/worktree when GitHub Codex Review is unavailable) must pass on the exact current PR `HEAD` SHA with zero unresolved blocking findings before explicit human merge approval.
 3. **Readiness Evaluation Gate (`RELEASE READINESS: GO` vs `NO-GO`)**:
    - Audited on the exact merged `main` commit SHA.
    - Verify staged asset hashes (`node scripts/prepare-release.mjs <version>`), third-party licenses (`npm run verify:licenses`), public boundary (`node scripts/verify-public-boundary.mjs`), and GitHub CLI mock release lifecycle (`npx vitest run tests/release-cli-lifecycle.test.ts tests/release-publication.test.ts`).

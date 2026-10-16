@@ -1,16 +1,16 @@
 # Unified Verification Report Template
 
-Use this exact structure when reporting verification results from either `codex` or `antigravity`.
+Use this exact structure when reporting verification results from either `codex` or `antigravity`. When posting to public GitHub Issues or PRs, omit private absolute filesystem paths and internal runtime secrets per `AGENTS.md`.
 
 ```markdown
 # Jevault Verification Report — Issue #<ISSUE_NUMBER>
 
 - **Issue**: #<ISSUE_NUMBER> (<ISSUE_URL>)
-- **Assigned Agent**: `<codex | antigravity>`
-- **Worktree**: `<absolute-worktree-path>` (branch: `<branch-name>`)
+- **Implementation Agent**: `<codex | antigravity>`
+- **Worktree Identifier**: `<worktree-name>` (branch: `<branch-name>`)
 - **Exact HEAD SHA**: `<40-char-sha>` (Tree: `<40-char-tree-sha>`)
 - **PR URL**: `<PR_URL | N/A (pre-PR)>`
-- **Merge Gate Status**: `<READY_TO_MERGE | BLOCKED | IN_PROGRESS>`
+- **Merge Gate Status**: `<READY_TO_MERGE | BLOCKED | IN_PROGRESS>` (Requires separate explicit human approval to merge)
 
 ## 1. Local Automated Verification
 
@@ -33,15 +33,30 @@ Use this exact structure when reporting verification results from either `codex`
 
 ## 3. CI & Review Alignment (Exact SHA Gate)
 
-- **PR HEAD SHA**: `<40-char-sha | N/A>`
-- **GitHub Validate CI**: `<PASS | FAIL | PENDING | N/A>` (SHA: `<sha>`)
-- **GitHub Public Boundary CI**: `<PASS | FAIL | PENDING | N/A>` (SHA: `<sha>`)
-- **Local Pre-Review (Orca / Agent)**: `<PASS | FAIL | N/A>` (SHA: `<sha>`, non-authoritative)
-- **GitHub Codex Review**: `<PASS | CHANGES_REQUESTED | PENDING | N/A>`
+- **Current PR HEAD SHA**: `<40-char-sha | N/A>`
+- **GitHub Validate CI**: `<PASS | FAIL | PENDING | N/A>` (SHA: `<40-char-sha>`)
+- **GitHub Public Boundary CI**: `<PASS | FAIL | PENDING | N/A>` (SHA: `<40-char-sha>`)
+- **Review Record**:
+  - **Review Provider**: `<Codex | Antigravity | Other>`
+  - **Review Mode**: `<GitHub | Independent Agent>`
+  - **Reviewer Session / Execution Record**: `<GitHub review URL or independent Orca worker / CLI session identifier, distinct from implementer session>`
+  - **Fallback Reason (if Independent Agent used instead of GitHub Codex Review)**: `<N/A (GitHub Codex Review used) | GitHub Codex Review quota/usage limit | GitHub Codex Review service outage>`
   - **Reviewed Commit SHA**: `<40-char-sha | N/A>`
-  - **Matches Current HEAD SHA**: `<YES | NO>` (Must be `YES` for `READY_TO_MERGE`)
+  - **Current PR HEAD SHA**: `<40-char-sha | N/A>`
+  - **SHA Match (`Reviewed Commit SHA === Current PR HEAD SHA`)**: `<YES | NO>` (Must be `YES` for `READY_TO_MERGE`)
+  - **Findings & Resolution Status**: `<None | Severity-tagged findings and fix commit SHAs>`
+  - **Review Result**: `<PASS | FINDINGS | NOT VERIFIED>`
 
-## 4. Residual Risks & Unverified Items
+## 4. Merge Gate Checklist (`READY_TO_MERGE`)
+
+- [ ] Implementation satisfies Issue Acceptance Criteria
+- [ ] Local verification is `PASS` on current `HEAD` SHA
+- [ ] GitHub Actions CI (`validate`, `public-boundary`) is `PASS` on current PR `HEAD` SHA
+- [ ] GitHub Codex Review or Independent Agent Review (in a separate reviewer session) is `PASS` on current PR `HEAD` SHA
+- [ ] Zero unresolved blocking/material findings
+- [ ] Secret, Privacy, Vault Mutation, and Public Boundary audits completed
+
+## 5. Residual Risks & Unverified Items
 
 - **VERIFIED**: `<items>`
 - **NOT VERIFIED**: `<items and impact on GO/NO-GO>`

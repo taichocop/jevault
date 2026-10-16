@@ -1,6 +1,6 @@
 ---
 name: issue-to-pr
-description: Execute the unified Jevault Issue-to-PR workflow across Codex CLI and Google Antigravity using isolated worktrees, local verification, and GitHub Codex review gates.
+description: Execute the unified Jevault Issue-to-PR workflow across Codex CLI and Google Antigravity using isolated worktrees, local verification, and GitHub Codex or Independent Agent review gates.
 ---
 
 # Issue to PR Workflow
@@ -51,19 +51,24 @@ Verify `git status --short` and `git rev-parse HEAD` before editing.
    node scripts/verify-public-boundary.mjs
    ```
 
-## 4. Commit, PR, and GitHub Review Loop
+## 4. Commit, PR, and Review Gate (`READY_TO_MERGE`)
 
 Obtain explicit owner approval before `git commit`, `git push`, `gh pr create`, or merge when operating under gated tasks.
 
 1. Push the worker branch and open/update the PR targeting `main`.
-2. Wait for GitHub Actions (`Validate and release`, `Public Repository Boundary`) and **GitHub Codex Review** on the exact PR `headRefOid`.
-   - Local Orca review (`code-review` skill) is a pre-check and never substitutes for the formal GitHub review on the PR.
-3. If fixes are pushed, re-run local verification and re-verify that both CI and GitHub Codex Review pass on the **new** `headRefOid`.
-4. Mark `READY_TO_MERGE` in the [Verification Report](references/verification-report-template.md) **only** when:
-   - Local verification passes on the exact `HEAD` SHA,
-   - GitHub CI checks pass on the exact `HEAD` SHA, and
-   - GitHub Codex Review targets the exact `HEAD` SHA with no unresolved blocking findings.
-5. Hand off to human owner for merge (`Human Merge`). Tag push and Release publish require separate explicit approvals (`release-readiness` skill).
+2. **Review Gate (Priority & Fallback)**:
+   - **Priority 1 — GitHub Codex Review**: Prefer GitHub Codex Review on the exact PR `headRefOid`.
+   - **Priority 2 — Independent Agent Review (Official Fallback)**: When GitHub Codex Review is unavailable due to usage/quota limits or service outage, execute a read-only review using `code-review` in a **separate, independent reviewer session and isolated worktree** (e.g., via an Orca Reviewer Worker or a separate CLI session).
+   - **Strict Separation**: Never review your own implementation within the same session. Even when using the same agent product (`codex` or `antigravity`), the reviewer must run in a distinct session/context and must not edit files during review.
+3. If any commit is added to address findings, re-run local verification, confirm GitHub Actions CI passes on the **new** `headRefOid`, and re-run review on the **new** `headRefOid`.
+4. Mark `READY_TO_MERGE` in the [Verification Report](references/verification-report-template.md) **only** when all 6 conditions hold:
+   - Implementation satisfies the Issue Acceptance Criteria,
+   - Local verification passes (`PASS`) on the exact `HEAD` SHA,
+   - GitHub Actions CI (`Validate and release`, `Public repository boundary`) passes on the exact current PR `HEAD` SHA (local tests never substitute for GitHub CI),
+   - Either GitHub Codex Review or Independent Agent Review is `PASS` on the **exact current PR `HEAD` SHA** (`Reviewed Commit SHA === Current PR HEAD SHA`; CI alone or unexecuted review never counts as `PASS`),
+   - Zero unresolved blocking/material findings remain (quota limits never excuse ignoring findings), and
+   - Secret, Privacy, Vault Mutation, and Public Boundary checks are completed.
+5. `READY_TO_MERGE` is **not** permission to auto-merge. Stop and hand off to the human owner for explicit merge approval (`Human Merge`). Tag push and Release publish require separate explicit approvals (`release-readiness` skill).
 
 ## 5. Antigravity & Orca Permission Rules (Separated from Common Rules)
 
